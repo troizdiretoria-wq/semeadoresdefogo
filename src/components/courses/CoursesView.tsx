@@ -15,13 +15,15 @@ import {
 } from 'lucide-react';
 import { CourseModule, CourseClass, Enrollment, Certificate } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 export const CoursesView: React.FC = () => {
   const { currentUser, regions, activeRegionFilter } = useAuth();
-  const [modules, setModules] = useState<CourseModule[]>([]);
-  const [classes, setClasses] = useState<CourseClass[]>([]);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const initialDb = getClientDb();
+  const [modules, setModules] = useState<CourseModule[]>(() => initialDb.courseModules || []);
+  const [classes, setClasses] = useState<CourseClass[]>(() => initialDb.courseClasses || []);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>(() => initialDb.enrollments || []);
+  const [certificates, setCertificates] = useState<Certificate[]>(() => initialDb.certificates || []);
   const [activeTab, setActiveTab] = useState<'modules' | 'classes' | 'students' | 'certificates'>('modules');
 
   // Modals
@@ -38,25 +40,28 @@ export const CoursesView: React.FC = () => {
     hasPhysicalBook: true,
   });
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     loadCourseData();
   }, []);
 
   const loadCourseData = async () => {
-    setIsLoading(true);
     try {
-      const res = await fetch('/api/courses');
-      if (res.ok) {
-        const data = await res.json();
-        setModules(data.modules || []);
-        setClasses(data.classes || []);
-        setEnrollments(data.enrollments || []);
-        setCertificates(data.certificates || []);
+      const data = await universalFetch<{
+        modules: CourseModule[];
+        classes: CourseClass[];
+        enrollments: Enrollment[];
+        certificates: Certificate[];
+      }>('/api/courses');
+      if (data) {
+        if (data.modules) setModules(data.modules);
+        if (data.classes) setClasses(data.classes);
+        if (data.enrollments) setEnrollments(data.enrollments);
+        if (data.certificates) setCertificates(data.certificates);
       }
     } catch (err) {
-      console.error('Error fetching courses:', err);
+      console.warn('Courses fallback active:', err);
     } finally {
       setIsLoading(false);
     }
@@ -70,7 +75,7 @@ export const CoursesView: React.FC = () => {
       (activeRegionFilter !== 'ALL' ? activeRegionFilter : regions[0]?.id || 'reg-sp-01');
 
     try {
-      const res = await fetch('/api/courses/enroll', {
+      const created = await universalFetch<Enrollment>('/api/courses/enroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,7 +88,7 @@ export const CoursesView: React.FC = () => {
         }),
       });
 
-      if (res.ok) {
+      if (created) {
         setIsEnrollModalOpen(false);
         setEnrollForm({
           studentName: '',
@@ -104,7 +109,7 @@ export const CoursesView: React.FC = () => {
   const handleIssueCertificate = async (enr: Enrollment) => {
     const reg = regions.find((r) => r.id === enr.regionId);
     try {
-      const res = await fetch('/api/courses/certificates', {
+      const cert = await universalFetch<Certificate>('/api/courses/certificates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -119,10 +124,10 @@ export const CoursesView: React.FC = () => {
         }),
       });
 
-      if (res.ok) {
-        const cert = await res.json();
+      if (cert) {
         setSelectedCertToView(cert);
         loadCourseData();
+        setActiveTab('certificates');
       }
     } catch (err) {
       console.error('Error issuing certificate:', err);

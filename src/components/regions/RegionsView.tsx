@@ -16,20 +16,31 @@ import {
 } from 'lucide-react';
 import { Region, Member, EvangelismEvent, BimonthlyReport } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 export const RegionsView: React.FC = () => {
   const { isGlobalAdmin, currentUser, reloadRegions } = useAuth();
-  const [regionsList, setRegionsList] = useState<Region[]>([]);
-  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
+  const initialDb = getClientDb();
+  const [regionsList, setRegionsList] = useState<Region[]>(() => initialDb.regions || []);
+  const [selectedRegion, setSelectedRegion] = useState<Region | null>(() => (initialDb.regions && initialDb.regions[0]) || null);
   const [activeTab, setActiveTab] = useState<'info' | 'members' | 'evangelisms' | 'reports'>('info');
 
-  const [members, setMembers] = useState<Member[]>([]);
-  const [evangelisms, setEvangelisms] = useState<EvangelismEvent[]>([]);
-  const [reports, setReports] = useState<BimonthlyReport[]>([]);
+  const [members, setMembers] = useState<Member[]>(() => {
+    const firstRegId = initialDb.regions?.[0]?.id;
+    return firstRegId ? (initialDb.members || []).filter((m: any) => m.regionId === firstRegId) : [];
+  });
+  const [evangelisms, setEvangelisms] = useState<EvangelismEvent[]>(() => {
+    const firstRegId = initialDb.regions?.[0]?.id;
+    return firstRegId ? (initialDb.evangelismEvents || []).filter((e: any) => e.regionId === firstRegId) : [];
+  });
+  const [reports, setReports] = useState<BimonthlyReport[]>(() => {
+    const firstRegId = initialDb.regions?.[0]?.id;
+    return firstRegId ? (initialDb.bimonthlyReports || []).filter((r: any) => r.regionId === firstRegId) : [];
+  });
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   // New Region Form
   const [newRegionData, setNewRegionData] = useState({
@@ -63,18 +74,16 @@ export const RegionsView: React.FC = () => {
   }, [selectedRegion]);
 
   const loadRegions = async () => {
-    setIsLoading(true);
     try {
-      const res = await fetch('/api/regions');
-      if (res.ok) {
-        const data: Region[] = await res.json();
+      const data = await universalFetch<Region[]>('/api/regions');
+      if (data && data.length > 0) {
         setRegionsList(data);
-        if (!selectedRegion && data.length > 0) {
+        if (!selectedRegion) {
           setSelectedRegion(data[0]);
         }
       }
     } catch (err) {
-      console.error('Error fetching regions:', err);
+      console.warn('Regions fallback active:', err);
     } finally {
       setIsLoading(false);
     }
@@ -82,23 +91,23 @@ export const RegionsView: React.FC = () => {
 
   const loadRegionalDetails = async (regionId: string) => {
     try {
-      const [memRes, evRes, repRes] = await Promise.all([
-        fetch(`/api/members?regionId=${regionId}`),
-        fetch(`/api/evangelisms?regionId=${regionId}`),
-        fetch(`/api/reports?regionId=${regionId}`),
+      const [mems, evs, reps] = await Promise.all([
+        universalFetch<Member[]>(`/api/members?regionId=${regionId}`),
+        universalFetch<EvangelismEvent[]>(`/api/evangelisms?regionId=${regionId}`),
+        universalFetch<BimonthlyReport[]>(`/api/reports?regionId=${regionId}`),
       ]);
-      if (memRes.ok) setMembers(await memRes.json());
-      if (evRes.ok) setEvangelisms(await evRes.json());
-      if (repRes.ok) setReports(await repRes.json());
+      if (mems) setMembers(mems);
+      if (evs) setEvangelisms(evs);
+      if (reps) setReports(reps);
     } catch (err) {
-      console.error('Error loading regional details:', err);
+      console.warn('Regional details fallback active:', err);
     }
   };
 
   const handleCreateRegion = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/regions', {
+      const created = await universalFetch<Region>('/api/regions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -107,8 +116,7 @@ export const RegionsView: React.FC = () => {
           authorName: currentUser?.name,
         }),
       });
-      if (res.ok) {
-        const created = await res.json();
+      if (created) {
         setIsCreateModalOpen(false);
         setNewRegionData({
           name: '',
@@ -135,7 +143,7 @@ export const RegionsView: React.FC = () => {
     e.preventDefault();
     if (!selectedRegion) return;
     try {
-      const res = await fetch('/api/members', {
+      const created = await universalFetch<Member>('/api/members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -150,7 +158,7 @@ export const RegionsView: React.FC = () => {
           authorName: currentUser?.name,
         }),
       });
-      if (res.ok) {
+      if (created) {
         setIsAddMemberOpen(false);
         setNewMemberName('');
         setNewMemberEmail('');

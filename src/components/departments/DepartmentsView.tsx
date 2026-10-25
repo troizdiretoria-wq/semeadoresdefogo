@@ -12,12 +12,14 @@ import {
 } from 'lucide-react';
 import { Department, Task } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 export const DepartmentsView: React.FC = () => {
   const { currentUser, isGlobalAdmin } = useAuth();
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedDept, setSelectedDept] = useState<Department | null>(null);
+  const initialDb = getClientDb();
+  const [departments, setDepartments] = useState<Department[]>(() => initialDb.departments || []);
+  const [tasks, setTasks] = useState<Task[]>(() => initialDb.tasks || []);
+  const [selectedDept, setSelectedDept] = useState<Department | null>(() => (initialDb.departments && initialDb.departments[0]) || null);
   const [activeTab, setActiveTab] = useState<'departments' | 'tasks'>('departments');
   const [taskStatusFilter, setTaskStatusFilter] = useState<string>('ALL');
   const [isAddTaskOpen, setIsAddTaskOpen] = useState(false);
@@ -32,26 +34,26 @@ export const DepartmentsView: React.FC = () => {
     priority: 'Média' as 'Alta' | 'Média' | 'Baixa',
   });
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     loadDepartments();
   }, []);
 
   const loadDepartments = async () => {
-    setIsLoading(true);
     try {
-      const res = await fetch('/api/departments');
-      if (res.ok) {
-        const data = await res.json();
-        setDepartments(data.departments || []);
-        setTasks(data.tasks || []);
-        if (!selectedDept && data.departments?.length > 0) {
-          setSelectedDept(data.departments[0]);
+      const data = await universalFetch<any>('/api/departments');
+      if (data) {
+        const depts = Array.isArray(data) ? data : data.departments || [];
+        const t = Array.isArray(data.tasks) ? data.tasks : [];
+        if (depts.length > 0) {
+          setDepartments(depts);
+          if (!selectedDept) setSelectedDept(depts[0]);
         }
+        if (t.length > 0) setTasks(t);
       }
     } catch (err) {
-      console.error('Error fetching departments:', err);
+      console.warn('Departments fallback active:', err);
     } finally {
       setIsLoading(false);
     }

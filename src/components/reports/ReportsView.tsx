@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { BimonthlyReport, Region } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 interface ReportsViewProps {
   onOpenAiAnalysis: () => void;
@@ -28,8 +29,15 @@ interface ReportsViewProps {
 
 export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) => {
   const { currentUser, regions, activeRegionFilter, isGlobalAdmin } = useAuth();
-  const [reports, setReports] = useState<BimonthlyReport[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialDb = getClientDb();
+  const [reports, setReports] = useState<BimonthlyReport[]>(() => {
+    let reps = initialDb.bimonthlyReports || [];
+    if (activeRegionFilter !== 'ALL') {
+      reps = reps.filter((r: any) => r.regionId === activeRegionFilter);
+    }
+    return reps;
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
   // Filters
   const [filterPeriod, setFilterPeriod] = useState<string>('ALL');
@@ -51,16 +59,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) =>
   }, [activeRegionFilter]);
 
   const loadReports = async () => {
-    setIsLoading(true);
     try {
       const regionParam = activeRegionFilter !== 'ALL' ? `?regionId=${activeRegionFilter}` : '';
-      const res = await fetch(`/api/reports${regionParam}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await universalFetch<BimonthlyReport[]>(`/api/reports${regionParam}`);
+      if (data && Array.isArray(data)) {
         setReports(data);
       }
     } catch (err) {
-      console.error('Error loading reports:', err);
+      console.warn('Reports fallback active:', err);
     } finally {
       setIsLoading(false);
     }
@@ -149,23 +155,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) =>
         authorName: currentUser?.name,
       };
 
-      let res;
+      let saved: BimonthlyReport;
       if (isCreatingNew || !formData.id) {
-        res = await fetch('/api/reports', {
+        saved = await universalFetch<BimonthlyReport>('/api/reports', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch(`/api/reports/${formData.id}`, {
+        saved = await universalFetch<BimonthlyReport>(`/api/reports/${formData.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
 
-      if (res.ok) {
-        const saved = await res.json();
+      if (saved) {
         setIsCreatingNew(false);
         setIsEditing(false);
         setSelectedReport(saved);
@@ -179,8 +184,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) =>
   const handleReviewReport = async () => {
     if (!selectedReport) return;
     try {
-      const res = await fetch(`/api/reports/${selectedReport.id}/review`, {
-        method: 'POST',
+      const updated = await universalFetch<BimonthlyReport>(`/api/reports/${selectedReport.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: reviewAction,
@@ -190,8 +195,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) =>
         }),
       });
 
-      if (res.ok) {
-        const updated = await res.json();
+      if (updated) {
         setSelectedReport(updated);
         setIsReviewModalOpen(false);
         setAdminReviewComments('');

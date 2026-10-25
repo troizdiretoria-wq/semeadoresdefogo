@@ -16,11 +16,19 @@ import {
 } from 'lucide-react';
 import { EvangelismEvent, Region } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
+import { getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 export const EvangelismsView: React.FC = () => {
   const { currentUser, regions, activeRegionFilter } = useAuth();
-  const [events, setEvents] = useState<EvangelismEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialDb = getClientDb();
+  const [events, setEvents] = useState<EvangelismEvent[]>(() => {
+    let evs = initialDb.evangelismEvents || [];
+    if (activeRegionFilter !== 'ALL') {
+      evs = evs.filter((e: any) => e.regionId === activeRegionFilter);
+    }
+    return evs;
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -61,16 +69,14 @@ export const EvangelismsView: React.FC = () => {
   }, [activeRegionFilter]);
 
   const loadEvents = async () => {
-    setIsLoading(true);
     try {
       const regionParam = activeRegionFilter !== 'ALL' ? `?regionId=${activeRegionFilter}` : '';
-      const res = await fetch(`/api/evangelisms${regionParam}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await universalFetch<EvangelismEvent[]>(`/api/evangelisms${regionParam}`);
+      if (data && Array.isArray(data)) {
         setEvents(data);
       }
     } catch (err) {
-      console.error('Error fetching evangelisms:', err);
+      console.warn('Evangelisms fallback active:', err);
     } finally {
       setIsLoading(false);
     }
@@ -83,7 +89,7 @@ export const EvangelismsView: React.FC = () => {
       (activeRegionFilter !== 'ALL' ? activeRegionFilter : regions[0]?.id || 'reg-sp-01');
 
     try {
-      const res = await fetch('/api/evangelisms', {
+      const created = await universalFetch<EvangelismEvent>('/api/evangelisms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -96,7 +102,7 @@ export const EvangelismsView: React.FC = () => {
         }),
       });
 
-      if (res.ok) {
+      if (created) {
         setIsPlanModalOpen(false);
         setPlanForm({
           regionId: '',
@@ -135,17 +141,20 @@ export const EvangelismsView: React.FC = () => {
     if (!selectedEventToComplete) return;
 
     try {
-      const res = await fetch(`/api/evangelisms/${selectedEventToComplete.id}/complete`, {
-        method: 'POST',
+      const updated = await universalFetch<EvangelismEvent>(`/api/evangelisms/${selectedEventToComplete.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...completeForm,
+          status: 'Realizado',
+          completedAt: new Date().toISOString(),
+          completedBy: currentUser?.name || 'Líder',
           authorId: currentUser?.id,
           authorName: currentUser?.name,
         }),
       });
 
-      if (res.ok) {
+      if (updated) {
         setIsCompleteModalOpen(false);
         setSelectedEventToComplete(null);
         loadEvents();

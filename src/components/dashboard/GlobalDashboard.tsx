@@ -20,6 +20,7 @@ import {
 import { DashboardMetrics, Region, EvangelismEvent, BimonthlyReport } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { NavTab } from '../common/Sidebar.js';
+import { calculateLocalMetrics, getClientDb, universalFetch } from '../../lib/clientStore.js';
 
 interface GlobalDashboardProps {
   onNavigate: (tab: NavTab) => void;
@@ -31,10 +32,18 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
   onOpenAiAnalysis,
 }) => {
   const { activeRegionFilter, regions, isGlobalAdmin } = useAuth();
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [recentEvangelisms, setRecentEvangelisms] = useState<EvangelismEvent[]>([]);
-  const [recentReports, setRecentReports] = useState<BimonthlyReport[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Instant resilient state from local store
+  const [metrics, setMetrics] = useState<DashboardMetrics>(() => calculateLocalMetrics(activeRegionFilter));
+  const [recentEvangelisms, setRecentEvangelisms] = useState<EvangelismEvent[]>(() => {
+    const db = getClientDb();
+    return (db.evangelismEvents || []).slice(0, 5);
+  });
+  const [recentReports, setRecentReports] = useState<BimonthlyReport[]>(() => {
+    const db = getClientDb();
+    return (db.bimonthlyReports || []).slice(0, 4);
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
   // Filters
   const [filterPeriod, setFilterPeriod] = useState<string>('ALL');
@@ -44,47 +53,30 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
   }, [activeRegionFilter]);
 
   const loadDashboardData = async () => {
-    setIsLoading(true);
     try {
       const regionParam = activeRegionFilter !== 'ALL' ? `?regionId=${activeRegionFilter}` : '';
 
-      const [metricsRes, evRes, reportsRes] = await Promise.all([
-        fetch(`/api/dashboard/metrics${regionParam}`),
-        fetch(`/api/evangelisms${regionParam}`),
-        fetch(`/api/reports${regionParam}`),
+      const [m, evs, reps] = await Promise.all([
+        universalFetch<DashboardMetrics>(`/api/dashboard/metrics${regionParam}`),
+        universalFetch<EvangelismEvent[]>(`/api/evangelisms${regionParam}`),
+        universalFetch<BimonthlyReport[]>(`/api/reports${regionParam}`),
       ]);
 
-      if (metricsRes.ok) {
-        const m = await metricsRes.json();
+      if (m) {
         setMetrics(m);
       }
-      if (evRes.ok) {
-        const evs = await evRes.json();
+      if (evs && Array.isArray(evs)) {
         setRecentEvangelisms(evs.slice(0, 5));
       }
-      if (reportsRes.ok) {
-        const reps = await reportsRes.json();
+      if (reps && Array.isArray(reps)) {
         setRecentReports(reps.slice(0, 4));
       }
     } catch (err) {
-      console.error('Error loading dashboard metrics:', err);
+      console.warn('Dashboard data fallback to client store:', err);
     } finally {
       setIsLoading(false);
     }
   };
-
-  if (isLoading || !metrics) {
-    return (
-      <div className="p-8 flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-3 border-red-700 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-xs font-semibold text-stone-500">
-            Carregando indicadores reais do ministério...
-          </p>
-        </div>
-      </div>
-    );
-  }
 
   const activeRegion = regions.find((r) => r.id === activeRegionFilter);
 
@@ -228,10 +220,10 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
           <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-2">
             {metrics.contactsInConsolidation}
           </p>
-          <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>{metrics.totalContactsCollected} com consentimento</span>
+          <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between gap-1.5">
+            <span>{metrics.totalContactsCollected} coletados</span>
             <span className="text-emerald-700 font-semibold text-[10.5px]">
-              Vidas em acompanhamento
+              Em discipulado
             </span>
           </div>
         </div>
