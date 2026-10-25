@@ -1,0 +1,6 @@
+{
+  "name": "Semeadores de Fogo Global",
+  "description": "Plataforma oficial de gestão ministerial, evangelismos regionais, relatórios bimestrais, consolidação e liderança global dos Semeadores de Fogo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

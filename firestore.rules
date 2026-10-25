@@ -1,0 +1,125 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'arthursantosprojetos@gmail.com' ||
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin_global'
+      );
+    }
+
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection verification test document
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+    }
+
+    // Regions collection
+    match /regions/{regionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Members collection
+    match /members/{memberId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Evangelism Events
+    match /evangelismEvents/{eventId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // Bimonthly Reports
+    match /bimonthlyReports/{reportId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    // Consolidation Contacts (Sensitive LGPD protection)
+    match /consolidationContacts/{contactId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Course Modules & Classes
+    match /courseModules/{moduleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /courseClasses/{classId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Enrollments & Certificates
+    match /enrollments/{enrollmentId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /certificates/{certificateId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Crusades
+    match /crusades/{crusadeId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Departments & Tasks
+    match /departments/{departmentId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Meetings
+    match /meetings/{meetingId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Media Assets
+    match /mediaAssets/{assetId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Audit Logs
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // Financial Records
+    match /financialRecords/{recordId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

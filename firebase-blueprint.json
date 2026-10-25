@@ -1,0 +1,426 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "regionId": { "type": "string" },
+        "phone": { "type": "string" },
+        "status": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "Region": {
+      "title": "Region",
+      "description": "Regional ministerial unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "state": { "type": "string" },
+        "city": { "type": "string" },
+        "sponsoringChurch": { "type": "string" },
+        "responsiblePastor": { "type": "string" },
+        "coordinatorName": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "contactPhone": { "type": "string" },
+        "memberCount": { "type": "number" },
+        "implantationDate": { "type": "string" },
+        "plannedFrequency": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "state", "city", "sponsoringChurch", "responsiblePastor", "coordinatorName"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Registered Semeador member",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "regionId": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "roleInMinistry": { "type": "string" },
+        "baptismInHolySpirit": { "type": "boolean" },
+        "trainingCompleted": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "joinDate": { "type": "string" }
+      },
+      "required": ["id", "name", "regionId"]
+    },
+    "EvangelismEvent": {
+      "title": "EvangelismEvent",
+      "description": "Evangelism action plan and field results",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "regionId": { "type": "string" },
+        "name": { "type": "string" },
+        "dateTime": { "type": "string" },
+        "location": { "type": "string" },
+        "address": { "type": "string" },
+        "leaderId": { "type": "string" },
+        "leaderName": { "type": "string" },
+        "actionType": { "type": "string" },
+        "expectedParticipants": { "type": "number" },
+        "notes": { "type": "string" },
+        "status": { "type": "string" },
+        "actualParticipants": { "type": "number" },
+        "estimatedReached": { "type": "number" },
+        "contactsCollected": { "type": "number" },
+        "generalReport": { "type": "string" },
+        "positiveHighlights": { "type": "string" },
+        "difficultiesFound": { "type": "string" },
+        "testimonies": { "type": "string" },
+        "suggestions": { "type": "string" },
+        "completedAt": { "type": "string" },
+        "completedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "regionId", "name", "dateTime", "location", "status"]
+    },
+    "BimonthlyReport": {
+      "title": "BimonthlyReport",
+      "description": "Official regional bimonthly accountability report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "regionId": { "type": "string" },
+        "regionName": { "type": "string" },
+        "coordinatorId": { "type": "string" },
+        "coordinatorName": { "type": "string" },
+        "bimonthlyPeriod": { "type": "string" },
+        "year": { "type": "number" },
+        "status": { "type": "string" },
+        "submissionDate": { "type": "string" },
+        "evangelismsCount": { "type": "number" },
+        "frequencyObserved": { "type": "string" },
+        "locationsReached": { "type": "string" },
+        "totalParticipants": { "type": "number" },
+        "activitiesDescription": { "type": "string" },
+        "peopleReached": { "type": "number" },
+        "contactsCollected": { "type": "number" },
+        "contactsInConsolidation": { "type": "number" },
+        "forwardedToChurch": { "type": "number" },
+        "testimonies": { "type": "string" },
+        "strengths": { "type": "string" },
+        "difficulties": { "type": "string" },
+        "regionalNeeds": { "type": "string" },
+        "proposedImprovements": { "type": "string" },
+        "nextPeriodPlanning": { "type": "string" },
+        "documentsNotes": { "type": "string" },
+        "adminComments": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "regionId", "bimonthlyPeriod", "status"]
+    },
+    "ConsolidationContact": {
+      "title": "ConsolidationContact",
+      "description": "Contact reached during evangelism with LGPD consent",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "regionId": { "type": "string" },
+        "evangelismEventId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "neighborhood": { "type": "string" },
+        "city": { "type": "string" },
+        "age": { "type": "number" },
+        "gender": { "type": "string" },
+        "consentGiven": { "type": "boolean" },
+        "sensitiveDataConsent": { "type": "boolean" },
+        "assignedWorkerId": { "type": "string" },
+        "assignedWorkerName": { "type": "string" },
+        "status": { "type": "string" },
+        "prayerRequests": { "type": "string" },
+        "churchForwardedTo": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "regionId", "name", "phone", "consentGiven", "status"]
+    },
+    "CourseModule": {
+      "title": "CourseModule",
+      "description": "One of 4 official school study modules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "moduleNumber": { "type": "number" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "physicalBookRequired": { "type": "boolean" },
+        "totalHours": { "type": "number" }
+      },
+      "required": ["id", "moduleNumber", "title"]
+    },
+    "CourseClass": {
+      "title": "CourseClass",
+      "description": "Online Zoom course class and schedule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "moduleId": { "type": "string" },
+        "moduleTitle": { "type": "string" },
+        "title": { "type": "string" },
+        "quarter": { "type": "string" },
+        "zoomLink": { "type": "string" },
+        "scheduleDescription": { "type": "string" },
+        "instructorName": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "moduleId", "title", "status"]
+    },
+    "Enrollment": {
+      "title": "Enrollment",
+      "description": "Student enrollment in training course",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentEmail": { "type": "string" },
+        "studentPhone": { "type": "string" },
+        "regionId": { "type": "string" },
+        "classId": { "type": "string" },
+        "moduleTitle": { "type": "string" },
+        "status": { "type": "string" },
+        "attendanceCount": { "type": "number" },
+        "totalClasses": { "type": "number" },
+        "hasPhysicalBook": { "type": "boolean" },
+        "certificateId": { "type": "string" },
+        "completedDate": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "studentName", "classId", "status"]
+    },
+    "Certificate": {
+      "title": "Certificate",
+      "description": "Official ministerial digital completion certificate",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "certificateCode": { "type": "string" },
+        "studentName": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "completionDate": { "type": "string" },
+        "workloadHours": { "type": "number" },
+        "issuer": { "type": "string" },
+        "signedBy": { "type": "string" },
+        "regionName": { "type": "string" }
+      },
+      "required": ["id", "certificateCode", "studentName", "courseTitle"]
+    },
+    "Crusade": {
+      "title": "Crusade",
+      "description": "Large-scale evangelistic mobilization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "regionId": { "type": "string" },
+        "hostCity": { "type": "string" },
+        "hostState": { "type": "string" },
+        "startDate": { "type": "string" },
+        "endDate": { "type": "string" },
+        "status": { "type": "string" },
+        "coordinatorName": { "type": "string" },
+        "estimatedAttendance": { "type": "number" },
+        "intercessionLead": { "type": "string" },
+        "worshipLead": { "type": "string" },
+        "logisticsLead": { "type": "string" },
+        "outreachMaterialsLead": { "type": "string" },
+        "budgetEstimated": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "hostCity", "hostState", "status"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "One of 10 strategic ministerial departments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "number": { "type": "number" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "coordinatorName": { "type": "string" },
+        "memberCount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "number", "name", "coordinatorName"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Department action item or project task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "departmentId", "title", "status"]
+    },
+    "Meeting": {
+      "title": "Meeting",
+      "description": "Bimonthly leadership alignment meeting and minutes",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "meetingType": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "zoomLink": { "type": "string" },
+        "location": { "type": "string" },
+        "decisionsRecorded": { "type": "string" },
+        "minutesText": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "date", "status"]
+    },
+    "MediaAsset": {
+      "title": "MediaAsset",
+      "description": "Official brand asset or publication item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "fileFormat": { "type": "string" },
+        "fileSize": { "type": "string" },
+        "downloadUrl": { "type": "string" },
+        "isOfficialApproved": { "type": "boolean" },
+        "uploadedBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "fileFormat"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrative action audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "userId", "action", "entityType", "timestamp"]
+    },
+    "FinancialRecord": {
+      "title": "FinancialRecord",
+      "description": "Budget, travel cost or legal INPI asset record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string" },
+        "responsibleName": { "type": "string" },
+        "date": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "category", "title", "amount", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles and permissions"
+    },
+    "/regions/{regionId}": {
+      "schema": { "$ref": "#/entities/Region" },
+      "description": "Regional ministerial units"
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "#/entities/Member" },
+      "description": "Registered Semeadores"
+    },
+    "/evangelismEvents/{eventId}": {
+      "schema": { "$ref": "#/entities/EvangelismEvent" },
+      "description": "Evangelism actions and field results"
+    },
+    "/bimonthlyReports/{reportId}": {
+      "schema": { "$ref": "#/entities/BimonthlyReport" },
+      "description": "Bimonthly accountability reports"
+    },
+    "/consolidationContacts/{contactId}": {
+      "schema": { "$ref": "#/entities/ConsolidationContact" },
+      "description": "Evangelized contacts with LGPD consent"
+    },
+    "/courseModules/{moduleId}": {
+      "schema": { "$ref": "#/entities/CourseModule" },
+      "description": "The 4 study modules"
+    },
+    "/courseClasses/{classId}": {
+      "schema": { "$ref": "#/entities/CourseClass" },
+      "description": "Training classes and Zoom links"
+    },
+    "/enrollments/{enrollmentId}": {
+      "schema": { "$ref": "#/entities/Enrollment" },
+      "description": "Student enrollments"
+    },
+    "/certificates/{certificateId}": {
+      "schema": { "$ref": "#/entities/Certificate" },
+      "description": "Official completion certificates"
+    },
+    "/crusades/{crusadeId}": {
+      "schema": { "$ref": "#/entities/Crusade" },
+      "description": "Crusade plans and operational checklists"
+    },
+    "/departments/{departmentId}": {
+      "schema": { "$ref": "#/entities/Department" },
+      "description": "10 strategic ministerial departments"
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Department tasks and activities"
+    },
+    "/meetings/{meetingId}": {
+      "schema": { "$ref": "#/entities/Meeting" },
+      "description": "Leadership alignment meetings"
+    },
+    "/mediaAssets/{assetId}": {
+      "schema": { "$ref": "#/entities/MediaAsset" },
+      "description": "Brand assets and media catalog"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Administrative audit trail"
+    },
+    "/financialRecords/{recordId}": {
+      "schema": { "$ref": "#/entities/FinancialRecord" },
+      "description": "Budget and travel cost estimates"
+    }
+  }
+}
