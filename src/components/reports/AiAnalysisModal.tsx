@@ -3,13 +3,10 @@ import {
   Sparkles,
   X,
   AlertCircle,
-  CheckCircle2,
-  ListFilter,
   Users2,
   TrendingUp,
   BrainCircuit,
   Copy,
-  Printer,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 
@@ -48,52 +45,51 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
   const handleRunAnalysis = async () => {
     setIsLoading(true);
     setError(null);
+    setAnalysisResult(null);
+
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const res = await fetch('/api/ai/analyze-reports', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
         body: JSON.stringify({
-          period,
+          period: period || undefined,
           regionId: selectedRegion || undefined,
           customPrompt,
         }),
         signal: controller.signal,
       });
+
       clearTimeout(timeoutId);
 
-      if (res.ok) {
-        const result = await res.json();
-        setAnalysisResult(result);
-        return;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          'O servidor retornou uma resposta não-JSON (status ' +
+            res.status +
+            '). Verifique a rota /api/ai/analyze-reports.'
+        );
       }
-      throw new Error('API indisponível');
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || `Erro ${res.status}: Falha ao processar análise`);
+      }
+
+      setAnalysisResult(data);
     } catch (err: any) {
-      // High-grade executive fallback synthesis based on verified reports
-      setAnalysisResult({
-        summary: 'Consolidação ministerial dos relatórios bimestrais das regionais ativas (SP, MG, RJ). As frentes de evangelismo de rua demonstraram elevado engajamento e cumprimento da frequência estipulada.',
-        strengths: [
-          'Frequência quinzenal e semanal mantida rigorosamente com média de 21 voluntários por ação.',
-          'Mais de 525 vidas alcançadas nas principais praças e polos urbanos.',
-          'Coleta responsável de contatos respeitando as diretrizes pastorais e termos de consentimento.',
-        ],
-        recurrentBottlenecks: [
-          'Necessidade de reposição antecipada de folhetos e materiais oficiais de ensino.',
-          'Suporte logístico para transporte de equipes em ações noturnas.',
-        ],
-        recommendations: [
-          'Alinhar na próxima conferência ministerial o calendário conjunto para as Cruzadas de 2027.',
-          'Estimular a formação de novos líderes de rua através da Escola de Formação Ministerial.',
-        ],
-        meetingAgendaSuggestions: [
-          'Apresentação do balanço semestral das regionais.',
-          'Distribuição uniforme dos kits de evangelismo e materiais impressos.',
-          'Acompanhamento pastoral da equipe de consolidação pós-impacto.',
-        ],
-        comparativeHighlights: 'As regionais de São Paulo e Minas Gerais mantiveram 100% de pontualidade na entrega dos relatórios bimestrais.',
-        isAiGenerated: true,
-      });
+      console.error('[AI Analysis Error]:', err);
+      setError(
+        err.name === 'AbortError'
+          ? 'Tempo limite de requisição excedido ao contatar o modelo Gemini.'
+          : err.message || 'Falha ao executar síntese com IA.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -122,7 +118,7 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
                   Inteligência Artificial — Síntese de Relatórios Bimestrais
                 </h3>
                 <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-red-950 text-red-300 border border-red-800">
-                  Gemini 3.8 Flash
+                  Gemini API
                 </span>
               </div>
               <p className="text-xs text-stone-300">
@@ -132,7 +128,7 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition-colors"
+            className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -221,7 +217,7 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
 
           {error && (
             <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
               <span>{error}</span>
             </div>
           )}
@@ -235,12 +231,12 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
                     Resultado da Análise
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded font-semibold bg-emerald-100 text-emerald-800">
-                    {analysisResult.isAiGenerated ? 'Processado por Gemini 3.8 Flash' : 'Síntese Estruturada'}
+                    Processado por Gemini API
                   </span>
                 </div>
                 <button
                   onClick={copyToClipboard}
-                  className="flex items-center gap-1.5 text-xs text-stone-600 hover:text-stone-900 font-semibold px-2.5 py-1 rounded-lg border border-stone-200 hover:bg-stone-50 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-stone-600 hover:text-stone-900 font-semibold px-2.5 py-1 rounded-lg border border-stone-200 hover:bg-stone-50 transition-colors cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5" />
                   <span>{copied ? 'Copiado!' : 'Copiar Síntese'}</span>

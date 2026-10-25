@@ -1206,4 +1206,4 @@ export const INITIAL_DATABASE = {
       "notes": "Hospedagem solidária concedida pela Comunidade Cristã Central de Curitiba."
     }
   ]
-} as const;
+};

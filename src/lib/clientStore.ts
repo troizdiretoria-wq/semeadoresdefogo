@@ -1,354 +1,173 @@
+import {
+  fetchRegionsFromFirestore,
+  fetchMembersFromFirestore,
+  fetchEvangelismsFromFirestore,
+  fetchReportsFromFirestore,
+  fetchUsersFromFirestore,
+  createRegionInFirestore,
+  createMemberInFirestore,
+  createEvangelismInFirestore,
+  updateEvangelismInFirestore,
+  createReportInFirestore,
+  updateReportInFirestore,
+  calculateFirestoreDashboardMetrics,
+} from './firestoreService.js';
 import { INITIAL_DATABASE } from '../data/initialData.js';
-import { DashboardMetrics, User, Region, EvangelismEvent, BimonthlyReport, Department } from '../types/index.js';
+import { DatabaseSchema, DashboardMetrics, Region, EvangelismEvent, BimonthlyReport, Member, User } from '../types/index.js';
 
-const STORAGE_KEY = 'sf_client_db_v2';
-
-export interface DatabaseSchema {
-  users: any[];
-  regions: any[];
-  members: any[];
-  evangelismEvents: any[];
-  bimonthlyReports: any[];
-  consolidationContacts: any[];
-  courseModules: any[];
-  courseClasses: any[];
-  enrollments: any[];
-  certificates: any[];
-  crusades: any[];
-  departments: any[];
-  tasks: any[];
-  meetings: any[];
-  mediaAssets: any[];
-  auditLogs: any[];
-  financialRecords: any[];
-}
-
+/**
+ * Returns initial in-memory data for instant non-blocking hydration.
+ */
 export function getClientDb(): DatabaseSchema {
-  if (typeof window === 'undefined') {
-    return JSON.parse(JSON.stringify(INITIAL_DATABASE));
-  }
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const initial = JSON.parse(JSON.stringify(INITIAL_DATABASE));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
-      return initial;
-    }
-    return JSON.parse(raw);
-  } catch (err) {
-    console.warn('[clientStore] Error parsing stored DB, resetting to initial database:', err);
-    return JSON.parse(JSON.stringify(INITIAL_DATABASE));
-  }
-}
-
-export function saveClientDb(data: DatabaseSchema): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (err) {
-    console.warn('[clientStore] Error writing to localStorage:', err);
-  }
-}
-
-export function calculateLocalMetrics(regionId?: string): DashboardMetrics {
-  const db = getClientDb();
-  let events = db.evangelismEvents || [];
-  let reports = db.bimonthlyReports || [];
-  let members = db.members || [];
-  let contacts = db.consolidationContacts || [];
-
-  if (regionId && regionId !== 'ALL') {
-    events = events.filter((e: any) => e.regionId === regionId);
-    reports = reports.filter((r: any) => r.regionId === regionId);
-    members = members.filter((m: any) => m.regionId === regionId);
-    contacts = contacts.filter((c: any) => c.regionId === regionId);
-  }
-
-  const completedEvangelisms = events.filter((e: any) => e.status === 'Realizado').length;
-  const plannedEvangelisms = events.filter((e: any) => e.status === 'Planejado' || e.status === 'Confirmado').length;
-
-  const totalPeopleReached = events
-    .filter((e: any) => e.status === 'Realizado')
-    .reduce((acc: number, e: any) => acc + (Number(e.estimatedReached) || 0), 0);
-
-  const totalContactsCollected = events
-    .filter((e: any) => e.status === 'Realizado')
-    .reduce((acc: number, e: any) => acc + (Number(e.contactsCollected) || 0), 0);
-
-  const totalParticipantsInvolved = events.reduce(
-    (acc: number, e: any) => acc + (Number(e.actualParticipants) || Number(e.expectedParticipants) || 0),
-    0
-  );
-
-  const contactsInConsolidation = contacts.filter(
-    (c: any) => c.status === 'contatado' || c.status === 'em_discipulado'
-  ).length;
-
-  const contactsForwardedToChurch = contacts.filter(
-    (c: any) => c.status === 'encaminhado_igreja' || c.status === 'batizado'
-  ).length;
-
-  const activeRegionsCount = db.regions.filter((r: any) => r.status === 'active').length;
-
-  return {
-    totalRegions: db.regions.length,
-    activeRegions: activeRegionsCount,
-    totalMembers: members.length > 0 ? members.length : 32,
-    completedEvangelisms,
-    plannedEvangelisms,
-    totalParticipantsInvolved: totalParticipantsInvolved > 0 ? totalParticipantsInvolved : 84,
-    totalPeopleReached: totalPeopleReached > 0 ? totalPeopleReached : 525,
-    totalContactsCollected: totalContactsCollected > 0 ? totalContactsCollected : 28,
-    contactsInConsolidation: contactsInConsolidation > 0 ? contactsInConsolidation : 19,
-    contactsForwardedToChurch: contactsForwardedToChurch > 0 ? contactsForwardedToChurch : 9,
-    reportsSubmitted: reports.length,
-    reportsApproved: reports.filter((r: any) => r.status === 'Aprovado').length,
-    reportsPendingReview: reports.filter((r: any) => r.status === 'Enviado' || r.status === 'Em análise').length,
-    totalStudentsEnrolled: (db.enrollments || []).length || 45,
-    alerts: [
-      {
-        type: 'info',
-        message: 'Período aberto para entrega do Relatório Bimestral (Bimestre Atual)',
-        link: '/reports',
-      },
-      {
-        type: 'success',
-        message: '100% dos evangelismos registrados operando sob diretriz pastoral e LGPD',
-      },
-    ],
-  };
+  return INITIAL_DATABASE as unknown as DatabaseSchema;
 }
 
 /**
- * Universal safe fetcher with instant local database fallback
+ * Calculate dynamic metrics directly from Firestore without fake fallback constants.
  */
-export async function universalFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
-  const isGet = !options || !options.method || options.method.toUpperCase() === 'GET';
-
-  // Try real network first if available
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    const contentType = response.headers.get('content-type') || '';
-    if (response.ok && contentType.includes('application/json')) {
-      const data = await response.json();
-      return data;
-    }
-  } catch (err) {
-    // Network failed or timed out — proceed to local client fallback
-  }
-
-  // Local fallback router
-  return handleLocalFallback(url, options);
+export async function calculateLocalMetrics(regionId?: string): Promise<DashboardMetrics> {
+  return calculateFirestoreDashboardMetrics(regionId);
 }
 
-function handleLocalFallback(url: string, options?: RequestInit): any {
+/**
+ * Unified Client Data Fetcher backed by Cloud Firestore.
+ * Eliminates local storage divergence and ensures Firestore is the single source of truth.
+ */
+export async function universalFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
+  const method = (options?.method || 'GET').toUpperCase();
   const parsedUrl = new URL(url, 'http://localhost');
   const path = parsedUrl.pathname;
   const searchParams = parsedUrl.searchParams;
-  const method = (options?.method || 'GET').toUpperCase();
-  const db = getClientDb();
 
-  // DASHBOARD METRICS
+  // 1. AI Analysis runs server-side via Vercel Functions / Express
+  if (path.startsWith('/api/ai/')) {
+    const response = await fetch(url, options);
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Resposta inválida do servidor de IA (status ${response.status}).`);
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Falha ao processar análise com IA.');
+    }
+    return data as T;
+  }
+
+  // 2. DASHBOARD METRICS: Compute directly from live Firestore
   if (path === '/api/dashboard/metrics') {
     const regionId = searchParams.get('regionId') || undefined;
-    return calculateLocalMetrics(regionId);
+    const metrics = await calculateFirestoreDashboardMetrics(regionId);
+    return metrics as unknown as T;
   }
 
-  // AUTH USERS
-  if (path === '/api/auth/users') {
-    return db.users;
-  }
-
-  // AUTH LOGIN
-  if (path === '/api/auth/login' && method === 'POST') {
-    const body = options?.body ? JSON.parse(options.body as string) : {};
-    const found = db.users.find(
-      (u: any) => u.id === body.userId || (body.email && u.email.toLowerCase() === body.email.toLowerCase())
-    ) || db.users[0];
-    return { user: found };
-  }
-
-  // REGIONS
+  // 3. REGIONS: Read/Write from Cloud Firestore
   if (path === '/api/regions') {
     if (method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const newRegion = {
-        id: `reg-custom-${Date.now()}`,
-        memberCount: 0,
-        createdAt: new Date().toISOString(),
-        ...body,
-      };
-      db.regions.push(newRegion);
-      saveClientDb(db);
-      return newRegion;
+      const newRegion = await createRegionInFirestore(body);
+      return newRegion as unknown as T;
     }
-    return db.regions;
+    const regions = await fetchRegionsFromFirestore();
+    return regions as unknown as T;
   }
 
   if (path.startsWith('/api/regions/')) {
     const id = path.replace('/api/regions/', '');
-    return db.regions.find((r: any) => r.id === id) || db.regions[0];
+    const regions = await fetchRegionsFromFirestore();
+    const found = regions.find((r) => r.id === id);
+    return found as unknown as T;
   }
 
-  // MEMBERS
+  // 4. MEMBERS: Read/Write from Cloud Firestore
   if (path === '/api/members') {
-    const regionId = searchParams.get('regionId');
+    const regionId = searchParams.get('regionId') || undefined;
     if (method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const newMember = {
-        id: `mem-${Date.now()}`,
-        active: true,
-        joinDate: new Date().toISOString().split('T')[0],
-        ...body,
-      };
-      db.members.push(newMember);
-      saveClientDb(db);
-      return newMember;
+      const newMember = await createMemberInFirestore(body);
+      return newMember as unknown as T;
     }
-    if (regionId && regionId !== 'ALL') {
-      return db.members.filter((m: any) => m.regionId === regionId);
-    }
-    return db.members;
+    const members = await fetchMembersFromFirestore(regionId);
+    return members as unknown as T;
   }
 
-  // EVANGELISMS
+  // 5. EVANGELISMS: Read/Write from Cloud Firestore
   if (path === '/api/evangelisms') {
+    const regionId = searchParams.get('regionId') || undefined;
     if (method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const newEvent = {
-        id: `ev-${Date.now()}`,
-        status: 'Confirmado',
-        confirmedMembers: [],
-        createdAt: new Date().toISOString(),
-        ...body,
-      };
-      db.evangelismEvents.unshift(newEvent);
-      saveClientDb(db);
-      return newEvent;
+      const newEvent = await createEvangelismInFirestore(body);
+      return newEvent as unknown as T;
     }
-    const regionId = searchParams.get('regionId');
-    if (regionId && regionId !== 'ALL') {
-      return db.evangelismEvents.filter((e: any) => e.regionId === regionId);
-    }
-    return db.evangelismEvents;
+    const events = await fetchEvangelismsFromFirestore(regionId);
+    return events as unknown as T;
   }
 
   if (path.startsWith('/api/evangelisms/')) {
     const id = path.replace('/api/evangelisms/', '');
-    if (method === 'PUT') {
+    if (method === 'PUT' || method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const idx = db.evangelismEvents.findIndex((e: any) => e.id === id);
-      if (idx !== -1) {
-        db.evangelismEvents[idx] = { ...db.evangelismEvents[idx], ...body };
-        saveClientDb(db);
-        return db.evangelismEvents[idx];
-      }
+      await updateEvangelismInFirestore(id, body);
+      return { id, ...body } as unknown as T;
     }
-    return db.evangelismEvents.find((e: any) => e.id === id);
+    const events = await fetchEvangelismsFromFirestore();
+    return events.find((e) => e.id === id) as unknown as T;
   }
 
-  // REPORTS
+  // 6. BIMONTHLY REPORTS: Read/Write from Cloud Firestore
   if (path === '/api/reports') {
+    const regionId = searchParams.get('regionId') || undefined;
     if (method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const newReport = {
-        id: `rep-${Date.now()}`,
-        status: 'Enviado',
-        submissionDate: new Date().toISOString(),
-        ...body,
-      };
-      db.bimonthlyReports.unshift(newReport);
-      saveClientDb(db);
-      return newReport;
+      const newReport = await createReportInFirestore(body);
+      return newReport as unknown as T;
     }
-    const regionId = searchParams.get('regionId');
-    if (regionId && regionId !== 'ALL') {
-      return db.bimonthlyReports.filter((r: any) => r.regionId === regionId);
-    }
-    return db.bimonthlyReports;
+    const reports = await fetchReportsFromFirestore(regionId);
+    return reports as unknown as T;
   }
 
   if (path.startsWith('/api/reports/')) {
     const id = path.replace('/api/reports/', '');
-    if (method === 'PUT') {
+    if (method === 'PUT' || method === 'POST') {
       const body = options?.body ? JSON.parse(options.body as string) : {};
-      const idx = db.bimonthlyReports.findIndex((r: any) => r.id === id);
-      if (idx !== -1) {
-        db.bimonthlyReports[idx] = { ...db.bimonthlyReports[idx], ...body };
-        saveClientDb(db);
-        return db.bimonthlyReports[idx];
-      }
+      await updateReportInFirestore(id, body);
+      return { id, ...body } as unknown as T;
     }
-    return db.bimonthlyReports.find((r: any) => r.id === id);
+    const reports = await fetchReportsFromFirestore();
+    return reports.find((r) => r.id === id) as unknown as T;
   }
 
-  // COURSES
+  // 7. USERS & AUTH: Read from Cloud Firestore
+  if (path === '/api/auth/users') {
+    const users = await fetchUsersFromFirestore();
+    return users as unknown as T;
+  }
+
+  // 8. DEPARTMENTS, COURSES & STATIC CONTENT
   if (path === '/api/courses') {
     return {
-      modules: db.courseModules || [],
-      classes: db.courseClasses || [],
-      enrollments: db.enrollments || [],
-      certificates: db.certificates || [],
-    };
+      modules: INITIAL_DATABASE.courseModules || [],
+      classes: INITIAL_DATABASE.courseClasses || [],
+      enrollments: INITIAL_DATABASE.enrollments || [],
+      certificates: INITIAL_DATABASE.certificates || [],
+    } as unknown as T;
   }
 
-  if (path === '/api/courses/enroll' && method === 'POST') {
-    const body = options?.body ? JSON.parse(options.body as string) : {};
-    const newEnrollment = {
-      id: `enr-${Date.now()}`,
-      status: 'ativo',
-      enrolledAt: new Date().toISOString(),
-      ...body,
-    };
-    db.enrollments.push(newEnrollment);
-    saveClientDb(db);
-    return newEnrollment;
-  }
-
-  if (path === '/api/courses/certificates' && method === 'POST') {
-    const body = options?.body ? JSON.parse(options.body as string) : {};
-    const newCert = {
-      id: `cert-${Date.now()}`,
-      verificationCode: `SF-CERT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-      issuedAt: new Date().toISOString(),
-      ...body,
-    };
-    db.certificates.push(newCert);
-    saveClientDb(db);
-    return newCert;
-  }
-
-  // DEPARTMENTS
   if (path === '/api/departments') {
-    return db.departments || [];
+    return (INITIAL_DATABASE.departments || []) as unknown as T;
   }
 
-  // AI ANALYSIS SYNTHESIS
-  if (path === '/api/ai/analyze-reports') {
-    return {
-      synthesis: `### Síntese Executiva de Relatórios Ministeriais
-**Supervisão Global Semeadores de Fogo**
-
-1. **Pontos Fortes Consolidados:**
-- Alta adesão comunitária em praças públicas e locais de grande fluxo nas capitais SP, MG e RJ.
-- Frequência quinzenal e semanal mantida rigorosamente conforme estipulado.
-- 100% de conformidade com os termos de consentimento e LGPD na abordagem de vidas.
-
-2. **Gargalos e Recomendações:**
-- Necessidade de reforço de materiais evangelísticos impressos (folhetos de estudo) para as regionais em expansão.
-- Agendamento da reunião de alinhamento com os coordenadores de campo.`,
-      generatedAt: new Date().toISOString(),
-    };
+  // Fallback: Attempt network fetch if route not handled above
+  try {
+    const res = await fetch(url, options);
+    if (res.ok) {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        return (await res.json()) as T;
+      }
+    }
+  } catch (networkErr) {
+    console.warn(`[universalFetch] Falha na rede para ${url}:`, networkErr);
   }
 
-  // Default fallback
-  return [];
+  return [] as unknown as T;
 }

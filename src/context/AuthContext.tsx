@@ -1,125 +1,181 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Region, UserRole } from '../types/index.js';
-import { getClientDb, universalFetch } from '../lib/clientStore.js';
+import { User, Region } from '../types/index.js';
+import { auth, googleProvider, signInWithPopup, signOut } from '../lib/firebase.js';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import {
+  fetchRegionsFromFirestore,
+  fetchUsersFromFirestore,
+  findUserByEmailOrUid,
+  seedFirestoreIfEmpty,
+  checkFirestoreConnection,
+} from '../lib/firestoreService.js';
 
 interface AuthContextType {
   currentUser: User | null;
+  firebaseUser: FirebaseUser | null;
   allUsers: User[];
   regions: Region[];
   activeRegionFilter: string | 'ALL';
   setActiveRegionFilter: (regionId: string | 'ALL') => void;
-  loginAs: (userId: string) => Promise<void>;
-  logout: () => void;
+  loginWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
   isLoading: boolean;
+  authError: string | null;
+  clearAuthError: () => void;
   canAccessModule: (moduleKey: string) => boolean;
   canEditRegionalData: (targetRegionId: string) => boolean;
   isGlobalAdmin: boolean;
   isRegionalCoordinator: boolean;
   reloadRegions: () => Promise<void>;
+  firestoreConnected: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Synchronous safe initialization from local database so screen never starts blank/broken
-  const initialDb = getClientDb();
-  const initialUsers: User[] = initialDb.users || [];
-  const initialRegions: Region[] = initialDb.regions || [];
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [activeRegionFilter, setActiveRegionFilterState] = useState<string | 'ALL'>('ALL');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [firestoreConnected, setFirestoreConnected] = useState<boolean>(true);
 
-  const storedUserId = typeof window !== 'undefined' ? localStorage.getItem('sf_user_id') : null;
-  const initialUser: User =
-    (storedUserId && initialUsers.find((u) => u.id === storedUserId)) ||
-    initialUsers.find((u) => u.name === 'Arthur') ||
-    initialUsers[0];
+  // Initialize and check connection
+  useEffect(() => {
+    let mounted = true;
 
-  const [currentUser, setCurrentUser] = useState<User | null>(initialUser || null);
-  const [allUsers, setAllUsers] = useState<User[]>(initialUsers);
-  const [regions, setRegions] = useState<Region[]>(initialRegions);
-  const [activeRegionFilter, setActiveRegionFilterState] = useState<string | 'ALL'>(
-    initialUser?.role !== 'admin_global' && initialUser?.regionId ? initialUser.regionId : 'ALL'
-  );
-  const [isLoading, setIsLoading] = useState(false);
+    async function init() {
+      try {
+        const isConnected = await checkFirestoreConnection();
+        if (mounted) setFirestoreConnected(isConnected);
 
-  // Load users & regions from server/fallback
-  const loadInitialData = async () => {
-    try {
-      const [usersData, regionsData] = await Promise.all([
-        universalFetch<User[]>('/api/auth/users'),
-        universalFetch<Region[]>('/api/regions'),
-      ]);
+        // Seed initial collections if empty
+        await seedFirestoreIfEmpty();
 
-      if (usersData && usersData.length > 0) {
-        setAllUsers(usersData);
-        const stored = typeof window !== 'undefined' ? localStorage.getItem('sf_user_id') : null;
-        const found =
-          (stored && usersData.find((u) => u.id === stored)) ||
-          usersData.find((u) => u.name === 'Arthur') ||
-          usersData[0];
+        const [initialRegions, initialUsers] = await Promise.all([
+          fetchRegionsFromFirestore(),
+          fetchUsersFromFirestore(),
+        ]);
 
-        if (found) {
-          setCurrentUser(found);
-          if (found.role !== 'admin_global' && found.regionId) {
-            setActiveRegionFilterState(found.regionId);
-          }
+        if (mounted) {
+          setRegions(initialRegions);
+          setAllUsers(initialUsers);
         }
+      } catch (err) {
+        console.warn('[AuthContext] Erro na inicialização:', err);
+      } finally {
+        if (mounted) setIsLoading(false);
       }
+    }
 
-      if (regionsData && regionsData.length > 0) {
-        setRegions(regionsData);
+    init();
+
+    // Listen to Firebase Auth state
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+
+      if (fbUser) {
+        try {
+          setIsLoading(true);
+          const email = fbUser.email?.toLowerCase().trim();
+          const ministerialUser = await findUserByEmailOrUid(email, fbUser.uid);
+
+          if (!ministerialUser) {
+            // Unregistered user attempting access -> block and sign out
+            await signOut(auth);
+            setCurrentUser(null);
+            setAuthError(
+              `O e-mail Google (${fbUser.email}) não está cadastrado na base ministerial dos Semeadores de Fogo. Solicite liberação ao Administrador Global.`
+            );
+            return;
+          }
+
+          if (ministerialUser.status !== 'active') {
+            await signOut(auth);
+            setCurrentUser(null);
+            setAuthError(
+              `O cadastro de ${ministerialUser.name} está com status inativo. Contate a Liderança Global.`
+            );
+            return;
+          }
+
+          // Authorized ministerial user
+          setCurrentUser(ministerialUser);
+          setAuthError(null);
+
+          // Constrain regional filter to their assigned regional if coordinator or field leader
+          if (ministerialUser.role !== 'admin_global' && ministerialUser.regionId) {
+            setActiveRegionFilterState(ministerialUser.regionId);
+          } else {
+            setActiveRegionFilterState('ALL');
+          }
+        } catch (err: any) {
+          console.error('[AuthContext] Erro ao validar usuário no Firestore:', err);
+          setAuthError('Falha ao autenticar com o banco de dados Cloud Firestore: ' + (err.message || 'Erro de rede'));
+        } finally {
+          setIsLoading(false);
+        }
+      } else {
+        // Logged out
+        setCurrentUser(null);
       }
-    } catch (err) {
-      console.warn('Notice: using resilient client data store for auth and regions');
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const loginWithGoogle = async () => {
+    setAuthError(null);
+    setIsLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      if (err.code === 'auth/popup-closed-by-user') {
+        // User closed popup deliberately
+        setIsLoading(false);
+        return;
+      }
+      console.error('[Auth] Erro no login Google:', err);
+      setAuthError(`Erro na autenticação Google: ${err.message || 'Falha ao autenticar'}`);
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      setIsLoading(true);
+      await signOut(auth);
+      setCurrentUser(null);
+      setFirebaseUser(null);
+      setAuthError(null);
+      setActiveRegionFilterState('ALL');
+    } catch (err: any) {
+      console.error('[Auth] Erro ao sair:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
+  const clearAuthError = () => {
+    setAuthError(null);
+  };
 
   const reloadRegions = async () => {
     try {
-      const data = await universalFetch<Region[]>('/api/regions');
-      if (data && data.length > 0) {
-        setRegions(data);
-      }
+      const data = await fetchRegionsFromFirestore();
+      setRegions(data);
     } catch (err) {
-      console.error('Error reloading regions:', err);
+      console.error('Erro ao recarregar regionais:', err);
     }
-  };
-
-  const loginAs = async (userId: string) => {
-    try {
-      const data = await universalFetch<{ user: User }>('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-      if (data?.user) {
-        setCurrentUser(data.user);
-        localStorage.setItem('sf_user_id', data.user.id);
-
-        if (data.user.role !== 'admin_global' && data.user.regionId) {
-          setActiveRegionFilterState(data.user.regionId);
-        } else {
-          setActiveRegionFilterState('ALL');
-        }
-      }
-    } catch (err) {
-      console.error('Login error:', err);
-    }
-  };
-
-  const logout = () => {
-    const arthur = allUsers.find((u) => u.name === 'Arthur') || allUsers[0];
-    setCurrentUser(arthur || null);
-    localStorage.removeItem('sf_user_id');
   };
 
   const setActiveRegionFilter = (regionId: string | 'ALL') => {
     if (currentUser?.role !== 'admin_global' && currentUser?.regionId) {
-      // Locked to own regional for non-global admins
       setActiveRegionFilterState(currentUser.regionId);
     } else {
       setActiveRegionFilterState(regionId);
@@ -137,7 +193,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return false;
   };
 
-  // RBAC permissions helper
   const canAccessModule = (moduleKey: string): boolean => {
     if (!currentUser) return true;
     if (currentUser.role === 'admin_global') return true;
@@ -162,18 +217,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         currentUser,
+        firebaseUser,
         allUsers,
         regions,
         activeRegionFilter,
         setActiveRegionFilter,
-        loginAs,
+        loginWithGoogle,
         logout,
         isLoading,
+        authError,
+        clearAuthError,
         canAccessModule,
         canEditRegionalData,
         isGlobalAdmin,
         isRegionalCoordinator,
         reloadRegions,
+        firestoreConnected,
       }}
     >
       {children}

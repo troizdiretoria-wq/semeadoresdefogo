@@ -31,11 +31,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ onOpenAiAnalysis }) =>
   const { currentUser, regions, activeRegionFilter, isGlobalAdmin } = useAuth();
   const initialDb = getClientDb();
   const [reports, setReports] = useState<BimonthlyReport[]>(() => {
-    let reps = initialDb.bimonthlyReports || [];
+    const rawReps = JSON.parse(JSON.stringify(initialDb.bimonthlyReports || [])) as BimonthlyReport[];
     if (activeRegionFilter !== 'ALL') {
-      reps = reps.filter((r: any) => r.regionId === activeRegionFilter);
+      return rawReps.filter((r) => r.regionId === activeRegionFilter);
     }
-    return reps;
+    return rawReps;
   });
   const [isLoading, setIsLoading] = useState(false);
 

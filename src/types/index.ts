@@ -16,6 +16,7 @@ export interface User {
   status: 'active' | 'inactive';
   departmentId?: string;
   avatar?: string;
+  authUid?: string;
   createdAt: string;
 }
 
@@ -322,4 +323,24 @@ export interface DashboardMetrics {
   reportsPendingReview: number;
   totalStudentsEnrolled: number;
   alerts: Array<{ type: 'warning' | 'info' | 'success'; message: string; link?: string }>;
+}
+
+export interface DatabaseSchema {
+  users: User[];
+  regions: Region[];
+  members: Member[];
+  evangelismEvents: EvangelismEvent[];
+  bimonthlyReports: BimonthlyReport[];
+  consolidationContacts: ConsolidationContact[];
+  courseModules: CourseModule[];
+  courseClasses: CourseClass[];
+  enrollments: Enrollment[];
+  certificates: Certificate[];
+  crusades: Crusade[];
+  departments: Department[];
+  tasks: Task[];
+  meetings: Meeting[];
+  mediaAssets: MediaAsset[];
+  auditLogs: AuditLog[];
+  financialRecords: FinancialRecord[];
 }

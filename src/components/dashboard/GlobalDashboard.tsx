@@ -9,18 +9,18 @@ import {
   AlertTriangle,
   GraduationCap,
   Sparkles,
-  TrendingUp,
-  HeartHandshake,
   Calendar,
-  CheckCircle2,
-  Clock,
   ArrowUpRight,
-  Filter,
+  RefreshCw,
 } from 'lucide-react';
-import { DashboardMetrics, Region, EvangelismEvent, BimonthlyReport } from '../../types/index.js';
+import { DashboardMetrics, EvangelismEvent, BimonthlyReport } from '../../types/index.js';
 import { useAuth } from '../../context/AuthContext.js';
 import { NavTab } from '../common/Sidebar.js';
-import { calculateLocalMetrics, getClientDb, universalFetch } from '../../lib/clientStore.js';
+import {
+  calculateFirestoreDashboardMetrics,
+  fetchEvangelismsFromFirestore,
+  fetchReportsFromFirestore,
+} from '../../lib/firestoreService.js';
 
 interface GlobalDashboardProps {
   onNavigate: (tab: NavTab) => void;
@@ -31,48 +31,34 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
   onNavigate,
   onOpenAiAnalysis,
 }) => {
-  const { activeRegionFilter, regions, isGlobalAdmin } = useAuth();
-  
-  // Instant resilient state from local store
-  const [metrics, setMetrics] = useState<DashboardMetrics>(() => calculateLocalMetrics(activeRegionFilter));
-  const [recentEvangelisms, setRecentEvangelisms] = useState<EvangelismEvent[]>(() => {
-    const db = getClientDb();
-    return (db.evangelismEvents || []).slice(0, 5);
-  });
-  const [recentReports, setRecentReports] = useState<BimonthlyReport[]>(() => {
-    const db = getClientDb();
-    return (db.bimonthlyReports || []).slice(0, 4);
-  });
-  const [isLoading, setIsLoading] = useState(false);
+  const { activeRegionFilter, regions } = useAuth();
 
-  // Filters
-  const [filterPeriod, setFilterPeriod] = useState<string>('ALL');
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [recentEvangelisms, setRecentEvangelisms] = useState<EvangelismEvent[]>([]);
+  const [recentReports, setRecentReports] = useState<BimonthlyReport[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     loadDashboardData();
   }, [activeRegionFilter]);
 
   const loadDashboardData = async () => {
+    setIsLoading(true);
+    setFetchError(null);
     try {
-      const regionParam = activeRegionFilter !== 'ALL' ? `?regionId=${activeRegionFilter}` : '';
-
       const [m, evs, reps] = await Promise.all([
-        universalFetch<DashboardMetrics>(`/api/dashboard/metrics${regionParam}`),
-        universalFetch<EvangelismEvent[]>(`/api/evangelisms${regionParam}`),
-        universalFetch<BimonthlyReport[]>(`/api/reports${regionParam}`),
+        calculateFirestoreDashboardMetrics(activeRegionFilter),
+        fetchEvangelismsFromFirestore(activeRegionFilter),
+        fetchReportsFromFirestore(activeRegionFilter),
       ]);
 
-      if (m) {
-        setMetrics(m);
-      }
-      if (evs && Array.isArray(evs)) {
-        setRecentEvangelisms(evs.slice(0, 5));
-      }
-      if (reps && Array.isArray(reps)) {
-        setRecentReports(reps.slice(0, 4));
-      }
-    } catch (err) {
-      console.warn('Dashboard data fallback to client store:', err);
+      setMetrics(m);
+      setRecentEvangelisms(evs.slice(0, 5));
+      setRecentReports(reps.slice(0, 4));
+    } catch (err: any) {
+      console.error('[Dashboard] Erro ao carregar dados do Firestore:', err);
+      setFetchError(err.message || 'Falha ao sincronizar dados com o banco Firestore.');
     } finally {
       setIsLoading(false);
     }
@@ -80,9 +66,8 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
 
   const activeRegion = regions.find((r) => r.id === activeRegionFilter);
 
-  // Conversion rate: Forwarded to church / Contacts collected
   const churchConversionRate =
-    metrics.totalContactsCollected > 0
+    metrics && metrics.totalContactsCollected > 0
       ? Math.round((metrics.contactsForwardedToChurch / metrics.totalContactsCollected) * 100)
       : 0;
 
@@ -97,7 +82,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             </span>
             <span className="text-xs text-stone-400">
               {activeRegionFilter === 'ALL'
-                ? 'Supervisão de todas as unidades ministeriais'
+                ? 'Supervisão de todas as frentes ministeriais'
                 : `${activeRegion?.name} (${activeRegion?.state})`}
             </span>
           </div>
@@ -107,11 +92,18 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
               : `Operações em ${activeRegion?.name}`}
           </h2>
           <p className="text-xs text-stone-300 mt-0.5">
-            Dados auditados em tempo real provenientes dos evangelismos e relatórios periódicos.
+            Dados auditados em tempo real provenientes dos registros de evangelismo e relatórios do Cloud Firestore.
           </p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={loadDashboardData}
+            title="Atualizar dados"
+            className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white text-xs font-semibold transition-all cursor-pointer"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
           <button
             onClick={onOpenAiAnalysis}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-xs font-bold transition-all shadow-md shadow-red-950/40 cursor-pointer"
@@ -122,8 +114,24 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
         </div>
       </div>
 
-      {/* Administrative Alerts Area */}
-      {metrics.alerts && metrics.alerts.length > 0 && (
+      {/* Fetch Error Warning */}
+      {fetchError && (
+        <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{fetchError}</span>
+          </div>
+          <button
+            onClick={loadDashboardData}
+            className="px-3 py-1 bg-amber-200 hover:bg-amber-300 rounded font-semibold text-amber-900"
+          >
+            Tentar Novamente
+          </button>
+        </div>
+      )}
+
+      {/* Administrative Alerts */}
+      {metrics?.alerts && metrics.alerts.length > 0 && (
         <div className="space-y-2">
           {metrics.alerts.map((alert, idx) => (
             <div
@@ -174,14 +182,14 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             </div>
           </div>
           <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-2">
-            {metrics.activeRegions}{' '}
-            <span className="text-xs font-semibold text-stone-400">/ {metrics.totalRegions}</span>
+            {metrics ? metrics.activeRegions : 0}{' '}
+            <span className="text-xs font-semibold text-stone-400">/ {metrics ? metrics.totalRegions : 0}</span>
           </p>
           <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>{metrics.totalMembers} Semeadores Ativos</span>
+            <span>{metrics ? metrics.totalMembers : 0} Semeadores Ativos</span>
             <button
               onClick={() => onNavigate('regions')}
-              className="text-red-700 hover:text-red-900 font-semibold"
+              className="text-red-700 hover:text-red-900 font-semibold cursor-pointer"
             >
               Gerenciar →
             </button>
@@ -199,10 +207,10 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             </div>
           </div>
           <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-2">
-            {metrics.totalPeopleReached.toLocaleString('pt-BR')}
+            {metrics ? metrics.totalPeopleReached.toLocaleString('pt-BR') : 0}
           </p>
           <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between">
-            <span>Em {metrics.completedEvangelisms} ações de rua</span>
+            <span>Em {metrics ? metrics.completedEvangelisms : 0} ações de rua</span>
             <span className="text-emerald-700 font-bold">Campo ativo</span>
           </div>
         </div>
@@ -218,10 +226,10 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             </div>
           </div>
           <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-2">
-            {metrics.contactsInConsolidation}
+            {metrics ? metrics.contactsInConsolidation : 0}
           </p>
           <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between gap-1.5">
-            <span>{metrics.totalContactsCollected} coletados</span>
+            <span>{metrics ? metrics.totalContactsCollected : 0} coletados</span>
             <span className="text-emerald-700 font-semibold text-[10.5px]">
               Em discipulado
             </span>
@@ -239,7 +247,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             </div>
           </div>
           <p className="text-2xl sm:text-3xl font-black text-stone-900 mt-2">
-            {metrics.contactsForwardedToChurch}
+            {metrics ? metrics.contactsForwardedToChurch : 0}
           </p>
           <div className="mt-2 text-[11px] text-stone-500 flex items-center justify-between">
             <span>Taxa de retenção: {churchConversionRate}%</span>
@@ -256,7 +264,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
           </div>
           <div>
             <p className="text-[10px] text-stone-500 uppercase font-bold">Evangelismos Programados</p>
-            <p className="text-lg font-bold text-stone-900">{metrics.plannedEvangelisms} confirmados</p>
+            <p className="text-lg font-bold text-stone-900">{metrics ? metrics.plannedEvangelisms : 0} confirmados</p>
           </div>
         </div>
 
@@ -266,7 +274,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
           </div>
           <div>
             <p className="text-[10px] text-stone-500 uppercase font-bold">Participações em Campo</p>
-            <p className="text-lg font-bold text-stone-900">{metrics.totalParticipantsInvolved} voluntários</p>
+            <p className="text-lg font-bold text-stone-900">{metrics ? metrics.totalParticipantsInvolved : 0} voluntários</p>
           </div>
         </div>
 
@@ -276,7 +284,9 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
           </div>
           <div>
             <p className="text-[10px] text-stone-500 uppercase font-bold">Relatórios Bimestrais</p>
-            <p className="text-lg font-bold text-stone-900">{metrics.reportsSubmitted} entregues ({metrics.reportsApproved} aprovados)</p>
+            <p className="text-lg font-bold text-stone-900">
+              {metrics ? metrics.reportsSubmitted : 0} entregues ({metrics ? metrics.reportsApproved : 0} aprovados)
+            </p>
           </div>
         </div>
 
@@ -286,16 +296,15 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
           </div>
           <div>
             <p className="text-[10px] text-stone-500 uppercase font-bold">Alunos em Formação</p>
-            <p className="text-lg font-bold text-stone-900">{metrics.totalStudentsEnrolled} matriculados</p>
+            <p className="text-lg font-bold text-stone-900">{metrics ? metrics.totalStudentsEnrolled : 0} matriculados</p>
           </div>
         </div>
       </div>
 
-      {/* Main Grid: Regional Performance & Recent Operations */}
+      {/* Main Grid: Evangelismos & Bimonthly Reports */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Evangelismos & Execução Recente (2 cols) */}
+        {/* Left Column: Evangelismos Recentes (2 cols) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Evangelism Actions List */}
           <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-2xs">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -303,12 +312,12 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
                   Ações Evangelísticas Recentes
                 </h3>
                 <p className="text-xs text-stone-500">
-                  Histórico e execução de campo com participantes e resultados
+                  Histórico e execução de campo diretamente do Firestore
                 </p>
               </div>
               <button
                 onClick={() => onNavigate('evangelisms')}
-                className="text-xs font-bold text-red-700 hover:text-red-900 flex items-center gap-1"
+                className="text-xs font-bold text-red-700 hover:text-red-900 flex items-center gap-1 cursor-pointer"
               >
                 <span>Ver todas as ações</span>
                 <ArrowUpRight className="w-3.5 h-3.5" />
@@ -318,7 +327,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
             <div className="divide-y divide-stone-100">
               {recentEvangelisms.length === 0 ? (
                 <p className="py-6 text-center text-xs text-stone-500">
-                  Nenhum evangelismo registrado para a regional selecionada.
+                  Nenhum evangelismo cadastrado para o escopo selecionado.
                 </p>
               ) : (
                 recentEvangelisms.map((ev) => {
@@ -350,7 +359,10 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
                           <MapPin className="w-3 h-3 text-stone-400 shrink-0" />
                           <span>{ev.location}</span>
                           <span>•</span>
-                          <span>{new Date(ev.dateTime).toLocaleDateString('pt-BR')} às {new Date(ev.dateTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>
+                            {new Date(ev.dateTime).toLocaleDateString('pt-BR')} às{' '}
+                            {new Date(ev.dateTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         </p>
                       </div>
 
@@ -376,73 +388,10 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
               )}
             </div>
           </div>
-
-          {/* Regional Evangelistic Operations Breakdown */}
-          <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-2xs">
-            <h3 className="font-bold text-stone-900 text-base mb-1">
-              Desempenho por Regional Ministerial
-            </h3>
-            <p className="text-xs text-stone-500 mb-4">
-              Frequência estipulada na reunião estratégica e situação de prestação de contas
-            </p>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-stone-200 text-stone-400 font-bold uppercase text-[10px]">
-                    <th className="pb-2.5">Regional</th>
-                    <th className="pb-2.5">Frequência</th>
-                    <th className="pb-2.5">Semeadores</th>
-                    <th className="pb-2.5">Igreja Patrocinadora</th>
-                    <th className="pb-2.5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100">
-                  {regions.map((reg) => (
-                    <tr key={reg.id} className="hover:bg-stone-50/60">
-                      <td className="py-3 font-bold text-stone-900">
-                        {reg.name} ({reg.state})
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            reg.plannedFrequency === 'semanal'
-                              ? 'bg-red-50 text-red-800 border border-red-200'
-                              : 'bg-stone-100 text-stone-700'
-                          }`}
-                        >
-                          {reg.plannedFrequency}
-                        </span>
-                      </td>
-                      <td className="py-3 text-stone-700 font-medium">
-                        {reg.memberCount} integrantes
-                      </td>
-                      <td className="py-3 text-stone-600 truncate max-w-[180px]">
-                        {reg.sponsoringChurch}
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            reg.status === 'active'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                          {reg.status === 'active' ? 'Ativa' : 'Em Implantação'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
 
-        {/* Right Column: Bimonthly Reports & AI Quick Actions */}
+        {/* Right Column: Relatórios Bimestrais */}
         <div className="space-y-6">
-          {/* Relatórios Bimestrais Card */}
           <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-2xs">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -455,7 +404,7 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
               </div>
               <button
                 onClick={() => onNavigate('reports')}
-                className="text-xs font-bold text-red-700 hover:text-red-900"
+                className="text-xs font-bold text-red-700 hover:text-red-900 cursor-pointer"
               >
                 Módulo →
               </button>
@@ -504,29 +453,6 @@ export const GlobalDashboard: React.FC<GlobalDashboardProps> = ({
                 ))
               )}
             </div>
-          </div>
-
-          {/* AI Synthesis Promotion Card */}
-          <div className="p-5 rounded-2xl bg-gradient-to-br from-red-950 via-stone-900 to-stone-900 text-white border border-red-900/40 shadow-sm relative overflow-hidden">
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                Inteligência Artificial Gemini
-              </span>
-            </div>
-            <h4 className="text-base font-extrabold text-white">
-              Análise Executiva de Relatórios
-            </h4>
-            <p className="text-xs text-stone-300 mt-1.5 leading-relaxed">
-              Consolide automaticamente pontos fortes, gargalos recorrentes de materiais/transporte e receba sugestões para a pauta da próxima reunião de líderes.
-            </p>
-            <button
-              onClick={onOpenAiAnalysis}
-              className="mt-4 w-full py-2.5 px-4 rounded-xl bg-red-700 hover:bg-red-600 text-white font-bold text-xs tracking-wider uppercase transition-colors shadow-sm cursor-pointer flex items-center justify-center gap-2"
-            >
-              <span>Gerar Síntese de Relatórios</span>
-              <ArrowUpRight className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>
