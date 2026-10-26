@@ -2,15 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getClientDb } from './clientStore.js';
 
-test('clientStore returns populated initial database structure', () => {
+test('clientStore returns valid unpolluted schema without fake mock constants', () => {
   const db = getClientDb();
   assert.ok(Array.isArray(db.users), 'users must be an array');
-  assert.ok(db.users.length >= 5, 'must contain at least 5 users');
   assert.ok(Array.isArray(db.regions), 'regions must be an array');
-  assert.ok(db.regions.length >= 3, 'must contain at least 3 regions');
   assert.ok(Array.isArray(db.evangelismEvents), 'evangelisms must be an array');
   assert.ok(Array.isArray(db.bimonthlyReports), 'reports must be an array');
   assert.ok(Array.isArray(db.departments), 'departments must be an array');
+  assert.equal(db.users.length, 0, 'initial store must be empty to prevent masking real database');
 });
 
 test('Pure metric aggregation calculates exact figures without fallback constants', () => {

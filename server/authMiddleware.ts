@@ -1,5 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
-import { firebaseConfig, serverDb, doc, getDoc, getDocs, collection, query, where, setDoc } from './firestore.js';
+import {
+  firebaseConfig,
+  serverDb,
+  adminAuth,
+  hasAdminCredentials,
+  doc,
+  getDocs,
+  collection,
+  query,
+  where,
+  setDoc,
+} from './firestore.js';
 
 export interface MinisterialUser {
   id: string;
@@ -21,14 +32,40 @@ export interface AuthenticatedRequest extends Request {
 }
 
 /**
- * Validates Firebase ID Token using Google Identity Toolkit REST API.
- * Avoids extra heavy dependencies while guaranteeing cryptographic verification.
+ * Validates Firebase ID Token using Firebase Admin SDK first.
+ * If running without service account credentials, falls back to Google Identity Toolkit REST API.
+ * This guarantees cryptographic verification in every environment (Vercel, Local, Cloud).
  */
 export async function verifyFirebaseIdToken(
   idToken: string
 ): Promise<{ uid: string; email: string; emailVerified: boolean } | null> {
   if (!idToken || typeof idToken !== 'string') return null;
 
+  // 1. Try Firebase Admin SDK verification
+  if (adminAuth) {
+    try {
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      if (decoded && decoded.uid) {
+        return {
+          uid: decoded.uid,
+          email: decoded.email || '',
+          emailVerified: !!decoded.email_verified,
+        };
+      }
+    } catch (adminErr: any) {
+      // If the token is invalid/expired according to Firebase, return null
+      if (
+        adminErr?.code === 'auth/id-token-expired' ||
+        adminErr?.code === 'auth/id-token-revoked' ||
+        adminErr?.code === 'auth/argument-error'
+      ) {
+        return null;
+      }
+      // If error is due to missing service account credentials in container, fall back to REST
+    }
+  }
+
+  // 2. Fallback to Google Identity Toolkit REST API
   try {
     const url = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${firebaseConfig.apiKey}`;
     const response = await fetch(url, {
@@ -91,19 +128,16 @@ export async function authenticateMinisterialToken(
 
     // 2. Query Firestore users by authUid or email
     let ministerialUser: MinisterialUser | null = null;
-    let userDocId: string | null = null;
 
     const snapUid = await getDocs(query(collection(serverDb, 'users'), where('authUid', '==', verifiedToken.uid)));
     if (!snapUid.empty) {
       ministerialUser = snapUid.docs[0].data() as MinisterialUser;
-      userDocId = snapUid.docs[0].id;
     } else {
       const snapAll = await getDocs(collection(serverDb, 'users'));
       for (const d of snapAll.docs) {
         const u = d.data() as MinisterialUser;
         if (u.email && u.email.toLowerCase().trim() === emailLower) {
           ministerialUser = u;
-          userDocId = d.id;
           // Associate UID
           setDoc(doc(serverDb, 'users', d.id), { authUid: verifiedToken.uid }, { merge: true }).catch(() => {});
           break;

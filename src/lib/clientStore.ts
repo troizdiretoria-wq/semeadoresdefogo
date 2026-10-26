@@ -12,14 +12,32 @@ import {
   updateReportInFirestore,
   calculateFirestoreDashboardMetrics,
 } from './firestoreService.js';
-import { INITIAL_DATABASE } from '../data/initialData.js';
 import { DatabaseSchema, DashboardMetrics, Region, EvangelismEvent, BimonthlyReport, Member, User } from '../types/index.js';
+import { apiClient } from './apiClient.js';
 
 /**
- * Returns initial in-memory data for instant non-blocking hydration.
+ * Returns empty base schema for safe initial state without fake mock constants.
  */
 export function getClientDb(): DatabaseSchema {
-  return INITIAL_DATABASE as unknown as DatabaseSchema;
+  return {
+    regions: [],
+    users: [],
+    members: [],
+    evangelismEvents: [],
+    bimonthlyReports: [],
+    departments: [],
+    tasks: [],
+    courseModules: [],
+    courseClasses: [],
+    enrollments: [],
+    certificates: [],
+    crusades: [],
+    consolidationContacts: [],
+    mediaAssets: [],
+    meetings: [],
+    financialRecords: [],
+    auditLogs: [],
+  };
 }
 
 /**
@@ -30,8 +48,8 @@ export async function calculateLocalMetrics(regionId?: string): Promise<Dashboar
 }
 
 /**
- * Unified Client Data Fetcher backed by Cloud Firestore.
- * Eliminates local storage divergence and ensures Firestore is the single source of truth.
+ * Unified Client Data Fetcher backed by Cloud Firestore and API Client.
+ * Eliminates local storage divergence and ensures live Firestore is the single source of truth.
  */
 export async function universalFetch<T = any>(url: string, options?: RequestInit): Promise<T> {
   const method = (options?.method || 'GET').toUpperCase();
@@ -39,18 +57,10 @@ export async function universalFetch<T = any>(url: string, options?: RequestInit
   const path = parsedUrl.pathname;
   const searchParams = parsedUrl.searchParams;
 
-  // 1. AI Analysis runs server-side via Vercel Functions / Express
+  // 1. AI Analysis runs server-side via Gemini API endpoint
   if (path.startsWith('/api/ai/')) {
-    const response = await fetch(url, options);
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('application/json')) {
-      throw new Error(`Resposta inválida do servidor de IA (status ${response.status}).`);
-    }
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Falha ao processar análise com IA.');
-    }
-    return data as T;
+    const body = options?.body ? JSON.parse(options.body as string) : {};
+    return apiClient.post<T>(path, body, { timeoutMs: 45000 });
   }
 
   // 2. DASHBOARD METRICS: Compute directly from live Firestore
@@ -142,32 +152,12 @@ export async function universalFetch<T = any>(url: string, options?: RequestInit
     return users as unknown as T;
   }
 
-  // 8. DEPARTMENTS, COURSES & STATIC CONTENT
-  if (path === '/api/courses') {
-    return {
-      modules: INITIAL_DATABASE.courseModules || [],
-      classes: INITIAL_DATABASE.courseClasses || [],
-      enrollments: INITIAL_DATABASE.enrollments || [],
-      certificates: INITIAL_DATABASE.certificates || [],
-    } as unknown as T;
-  }
-
-  if (path === '/api/departments') {
-    return (INITIAL_DATABASE.departments || []) as unknown as T;
-  }
-
-  // Fallback: Attempt network fetch if route not handled above
+  // 8. ALL OTHER ROUTES: Execute through centralized apiClient with Bearer auth token
   try {
-    const res = await fetch(url, options);
-    if (res.ok) {
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        return (await res.json()) as T;
-      }
-    }
-  } catch (networkErr) {
-    console.warn(`[universalFetch] Falha na rede para ${url}:`, networkErr);
+    const response = await apiClient.get<T>(url);
+    return response;
+  } catch (apiErr) {
+    console.warn(`[universalFetch] Falha ao consultar endpoint ${url}:`, apiErr);
+    return [] as unknown as T;
   }
-
-  return [] as unknown as T;
 }

@@ -155,6 +155,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
         return;
       }
+      if (err.code === 'auth/unauthorized-domain') {
+        setAuthError(
+          "Domínio não autorizado pelo Firebase Authentication: O domínio atual ('semeadoresdefogo.vercel.app') precisa ser adicionado na lista de Domínios Autorizados no Firebase Console (Console Firebase → Authentication → Configurações → Domínios Autorizados)."
+        );
+        setIsLoading(false);
+        return;
+      }
       console.error('[Auth] Erro no login Google:', err);
       setAuthError(`Erro na autenticação Google: ${err.message || 'Falha ao autenticar'}`);
       setIsLoading(false);
