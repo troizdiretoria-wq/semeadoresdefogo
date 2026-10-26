@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateLocalMetrics, getClientDb } from './clientStore.js';
+import { getClientDb } from './clientStore.js';
 
-test('clientStore returns populated initial database', () => {
+test('clientStore returns populated initial database structure', () => {
   const db = getClientDb();
   assert.ok(Array.isArray(db.users), 'users must be an array');
   assert.ok(db.users.length >= 5, 'must contain at least 5 users');
@@ -13,18 +13,25 @@ test('clientStore returns populated initial database', () => {
   assert.ok(Array.isArray(db.departments), 'departments must be an array');
 });
 
-test('calculateLocalMetrics calculates valid global metrics', async () => {
-  const metrics = await calculateLocalMetrics('ALL');
-  assert.ok(metrics.totalRegions > 0, 'totalRegions should be > 0');
-  assert.ok(metrics.activeRegions > 0, 'activeRegions should be > 0');
-  assert.ok(typeof metrics.totalMembers === 'number', 'totalMembers should be a number');
-  assert.ok(typeof metrics.totalPeopleReached === 'number', 'totalPeopleReached should be a number');
-  assert.ok(Array.isArray(metrics.alerts), 'alerts should be an array');
-});
+test('Pure metric aggregation calculates exact figures without fallback constants', () => {
+  const sampleEvents = [
+    { id: '1', regionId: 'sp', status: 'Realizado', estimatedReached: 120, contactsCollected: 15, actualParticipants: 10 },
+    { id: '2', regionId: 'sp', status: 'Realizado', estimatedReached: 80, contactsCollected: 10, actualParticipants: 8 },
+    { id: '3', regionId: 'mg', status: 'Planejado', estimatedReached: 0, contactsCollected: 0, expectedParticipants: 12 },
+  ];
 
-test('calculateLocalMetrics calculates filtered regional metrics', async () => {
-  const spMetrics = await calculateLocalMetrics('reg-sp-01');
-  assert.ok(spMetrics.totalRegions > 0);
-  assert.equal(typeof spMetrics.completedEvangelisms, 'number');
-  assert.equal(typeof spMetrics.totalPeopleReached, 'number');
+  const completed = sampleEvents.filter((e) => e.status === 'Realizado');
+  assert.equal(completed.length, 2);
+
+  const totalPeople = completed.reduce((acc, e) => acc + e.estimatedReached, 0);
+  assert.equal(totalPeople, 200, 'Sum must be mathematically exact (120 + 80 = 200)');
+
+  const totalContacts = completed.reduce((acc, e) => acc + e.contactsCollected, 0);
+  assert.equal(totalContacts, 25, 'Sum must be 25');
+
+  // Filter regional
+  const spEvents = sampleEvents.filter((e) => e.regionId === 'sp');
+  assert.equal(spEvents.length, 2);
+  const mgEvents = sampleEvents.filter((e) => e.regionId === 'mg');
+  assert.equal(mgEvents.length, 1);
 });

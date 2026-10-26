@@ -20,7 +20,6 @@ import {
   BimonthlyReport,
   DashboardMetrics,
 } from '../types/index.js';
-import { INITIAL_DATABASE } from '../data/initialData.js';
 
 export enum OperationType {
   CREATE = 'create',
@@ -64,19 +63,19 @@ export function handleFirestoreError(
 // Track connection health
 let firestoreOnline = true;
 
+/**
+ * Accurately pings Cloud Firestore.
+ * Fails if the server is unreachable, offline, or if permission is denied.
+ */
 export async function checkFirestoreConnection(): Promise<boolean> {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
     firestoreOnline = true;
     return true;
   } catch (err: any) {
-    if (err?.code === 'unavailable' || err?.message?.includes('offline')) {
-      firestoreOnline = false;
-      return false;
-    }
-    // Any permission error still means server is reachable
-    firestoreOnline = true;
-    return true;
+    console.warn('[Firestore Health] Conexão indisponível ou não autorizada:', err?.message);
+    firestoreOnline = false;
+    return false;
   }
 }
 
@@ -85,122 +84,36 @@ export function isFirestoreOnline(): boolean {
 }
 
 /**
- * Ensures initial ministerial data is seeded in Cloud Firestore if collections are empty.
+ * Administrative bootstrap triggered through secure backend endpoint
  */
-let seedingInProgress = false;
-
-export async function seedFirestoreIfEmpty(): Promise<void> {
-  if (seedingInProgress) return;
-  seedingInProgress = true;
-
+export async function triggerAdminBootstrap(idToken: string): Promise<{ success: boolean; message: string }> {
   try {
-    const regionsSnap = await getDocs(collection(db, 'regions'));
-    if (!regionsSnap.empty) {
-      seedingInProgress = false;
-      return;
-    }
-
-    console.log('[Firestore] Inicializando povoamento inicial das coleções ministeriais...');
-    const batch = writeBatch(db);
-
-    // Seed Users
-    if (INITIAL_DATABASE.users) {
-      for (const u of INITIAL_DATABASE.users) {
-        batch.set(doc(db, 'users', u.id), u);
-      }
-    }
-
-    // Seed Regions
-    if (INITIAL_DATABASE.regions) {
-      for (const r of INITIAL_DATABASE.regions) {
-        batch.set(doc(db, 'regions', r.id), r);
-      }
-    }
-
-    // Seed Members
-    if (INITIAL_DATABASE.members) {
-      for (const m of INITIAL_DATABASE.members) {
-        batch.set(doc(db, 'members', m.id), m);
-      }
-    }
-
-    // Seed Evangelisms
-    if (INITIAL_DATABASE.evangelismEvents) {
-      for (const e of INITIAL_DATABASE.evangelismEvents) {
-        batch.set(doc(db, 'evangelismEvents', e.id), e);
-      }
-    }
-
-    // Seed Reports
-    if (INITIAL_DATABASE.bimonthlyReports) {
-      for (const rep of INITIAL_DATABASE.bimonthlyReports) {
-        batch.set(doc(db, 'bimonthlyReports', rep.id), rep);
-      }
-    }
-
-    // Seed Course modules & classes
-    if (INITIAL_DATABASE.courseModules) {
-      for (const mod of INITIAL_DATABASE.courseModules) {
-        batch.set(doc(db, 'courseModules', mod.id), mod);
-      }
-    }
-    if (INITIAL_DATABASE.courseClasses) {
-      for (const cl of INITIAL_DATABASE.courseClasses) {
-        batch.set(doc(db, 'courseClasses', cl.id), cl);
-      }
-    }
-    if (INITIAL_DATABASE.enrollments) {
-      for (const enr of INITIAL_DATABASE.enrollments) {
-        batch.set(doc(db, 'enrollments', enr.id), enr);
-      }
-    }
-    if (INITIAL_DATABASE.certificates) {
-      for (const cert of INITIAL_DATABASE.certificates) {
-        batch.set(doc(db, 'certificates', cert.id), cert);
-      }
-    }
-
-    // Seed Departments & Tasks
-    if (INITIAL_DATABASE.departments) {
-      for (const d of INITIAL_DATABASE.departments) {
-        batch.set(doc(db, 'departments', d.id), d);
-      }
-    }
-    if (INITIAL_DATABASE.tasks) {
-      for (const t of INITIAL_DATABASE.tasks) {
-        batch.set(doc(db, 'tasks', t.id), t);
-      }
-    }
-
-    // Test doc for connection checks
-    batch.set(doc(db, 'test', 'connection'), {
-      status: 'active',
-      testedAt: new Date().toISOString(),
+    const res = await fetch('/api/admin/bootstrap', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
     });
-
-    await batch.commit();
-    console.log('[Firestore] Banco Cloud Firestore semeado com sucesso.');
-  } catch (err) {
-    console.warn('[Firestore] Aviso ao semear dados iniciais:', err);
-  } finally {
-    seedingInProgress = false;
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao inicializar banco');
+    }
+    return { success: true, message: data.message };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Erro de comunicação com o servidor' };
   }
 }
 
 // ==================== USERS & AUTH ====================
 
-const cloneData = <T>(val: unknown): T => JSON.parse(JSON.stringify(val));
-
 export async function fetchUsersFromFirestore(): Promise<User[]> {
   try {
     const snap = await getDocs(collection(db, 'users'));
-    if (snap.empty) {
-      return cloneData<User[]>(INITIAL_DATABASE.users) || [];
-    }
     return snap.docs.map((d) => d.data() as User);
   } catch (err) {
-    console.warn('[Firestore] Erro ao buscar usuários no Firestore, usando base local:', err);
-    return cloneData<User[]>(INITIAL_DATABASE.users) || [];
+    console.warn('[Firestore] Erro ao consultar usuários:', err);
+    return [];
   }
 }
 
@@ -253,13 +166,10 @@ export async function findUserByEmailOrUid(
 export async function fetchRegionsFromFirestore(): Promise<Region[]> {
   try {
     const snap = await getDocs(collection(db, 'regions'));
-    if (snap.empty) {
-      return cloneData<Region[]>(INITIAL_DATABASE.regions) || [];
-    }
     return snap.docs.map((d) => d.data() as Region);
   } catch (err) {
     console.warn('[Firestore] Erro ao buscar regionais:', err);
-    return cloneData<Region[]>(INITIAL_DATABASE.regions) || [];
+    return [];
   }
 }
 
@@ -297,20 +207,13 @@ export async function fetchMembersFromFirestore(regionId?: string): Promise<Memb
     let q = collection(db, 'members');
     const snap = await getDocs(q);
     let members = snap.docs.map((d) => d.data() as Member);
-    if (members.length === 0) {
-      members = cloneData<Member[]>(INITIAL_DATABASE.members) || [];
-    }
     if (regionId && regionId !== 'ALL') {
       members = members.filter((m) => m.regionId === regionId);
     }
     return members;
   } catch (err) {
     console.warn('[Firestore] Erro ao buscar membros:', err);
-    let members = cloneData<Member[]>(INITIAL_DATABASE.members) || [];
-    if (regionId && regionId !== 'ALL') {
-      members = members.filter((m) => m.regionId === regionId);
-    }
-    return members;
+    return [];
   }
 }
 
@@ -343,20 +246,13 @@ export async function fetchEvangelismsFromFirestore(regionId?: string): Promise<
   try {
     const snap = await getDocs(collection(db, 'evangelismEvents'));
     let events = snap.docs.map((d) => d.data() as EvangelismEvent);
-    if (events.length === 0) {
-      events = cloneData<EvangelismEvent[]>(INITIAL_DATABASE.evangelismEvents) || [];
-    }
     if (regionId && regionId !== 'ALL') {
       events = events.filter((e) => e.regionId === regionId);
     }
     return events.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
   } catch (err) {
     console.warn('[Firestore] Erro ao buscar evangelismos:', err);
-    let events = cloneData<EvangelismEvent[]>(INITIAL_DATABASE.evangelismEvents) || [];
-    if (regionId && regionId !== 'ALL') {
-      events = events.filter((e) => e.regionId === regionId);
-    }
-    return events;
+    return [];
   }
 }
 
@@ -406,20 +302,13 @@ export async function fetchReportsFromFirestore(regionId?: string): Promise<Bimo
   try {
     const snap = await getDocs(collection(db, 'bimonthlyReports'));
     let reports = snap.docs.map((d) => d.data() as BimonthlyReport);
-    if (reports.length === 0) {
-      reports = cloneData<BimonthlyReport[]>(INITIAL_DATABASE.bimonthlyReports) || [];
-    }
     if (regionId && regionId !== 'ALL') {
       reports = reports.filter((r) => r.regionId === regionId);
     }
     return reports;
   } catch (err) {
     console.warn('[Firestore] Erro ao buscar relatórios:', err);
-    let reports = cloneData<BimonthlyReport[]>(INITIAL_DATABASE.bimonthlyReports) || [];
-    if (regionId && regionId !== 'ALL') {
-      reports = reports.filter((r) => r.regionId === regionId);
-    }
-    return reports;
+    return [];
   }
 }
 
@@ -485,16 +374,17 @@ export async function updateReportInFirestore(
 
 /**
  * Calculates genuine dynamic metrics purely from live Firestore documents.
- * Never returns fabricated fallback numbers.
+ * Completely eliminates static constants and mock values.
  */
 export async function calculateFirestoreDashboardMetrics(
   regionId?: string
 ): Promise<DashboardMetrics> {
-  const [regions, evangelisms, reports, members] = await Promise.all([
+  const [regions, evangelisms, reports, members, enrollmentsSnap] = await Promise.all([
     fetchRegionsFromFirestore(),
     fetchEvangelismsFromFirestore(regionId),
     fetchReportsFromFirestore(regionId),
     fetchMembersFromFirestore(regionId),
+    getDocs(collection(db, 'enrollments')).catch(() => ({ size: 0, docs: [] } as any)),
   ]);
 
   const activeRegions = regions.filter((r) => r.status === 'active').length;
@@ -534,6 +424,8 @@ export async function calculateFirestoreDashboardMetrics(
     (r) => r.status === 'Enviado' || r.status === 'Em análise'
   ).length;
 
+  const totalStudentsEnrolled = enrollmentsSnap.size || 0;
+
   return {
     totalRegions: regions.length,
     activeRegions,
@@ -548,7 +440,7 @@ export async function calculateFirestoreDashboardMetrics(
     reportsSubmitted,
     reportsApproved,
     reportsPendingReview,
-    totalStudentsEnrolled: 4, // based on initial enrollment documents
+    totalStudentsEnrolled,
     alerts: [
       {
         type: 'info',

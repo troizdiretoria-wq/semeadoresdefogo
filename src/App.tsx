@@ -10,19 +10,36 @@ import { ReportsView } from './components/reports/ReportsView.js';
 import { AiAnalysisModal } from './components/reports/AiAnalysisModal.js';
 import { CoursesView } from './components/courses/CoursesView.js';
 import { DepartmentsView } from './components/departments/DepartmentsView.js';
+import { LoginView } from './components/auth/LoginView.js';
 
 function MainPortal() {
+  const { currentUser, isLoading } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
 
-  // If public site is requested
+  // If public site is requested, anyone can see it
   if (currentTab === 'public_site') {
     return (
       <PublicSite
         onEnterPortal={() => setCurrentTab('dashboard')}
       />
     );
+  }
+
+  // Initial loading state during session restoration
+  if (isLoading && !currentUser) {
+    return (
+      <div className="min-h-screen bg-stone-950 flex flex-col items-center justify-center text-stone-200">
+        <div className="w-8 h-8 border-3 border-red-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-xs font-semibold text-stone-400">Verificando credencial ministerial...</p>
+      </div>
+    );
+  }
+
+  // Priority 0: Lock dashboard and admin modules when currentUser is null
+  if (!currentUser) {
+    return <LoginView onGoToPublicSite={() => setCurrentTab('public_site')} />;
   }
 
   const renderActiveModule = () => {

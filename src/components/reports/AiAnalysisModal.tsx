@@ -16,7 +16,7 @@ interface AiAnalysisModalProps {
 }
 
 export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClose }) => {
-  const { regions, activeRegionFilter } = useAuth();
+  const { regions, activeRegionFilter, getIdToken } = useAuth();
   const [period, setPeriod] = useState('5º Bimestre / 2026 (Set/Out)');
   const [selectedRegion, setSelectedRegion] = useState(
     activeRegionFilter !== 'ALL' ? activeRegionFilter : ''
@@ -49,14 +49,20 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({ isOpen, onClos
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const timeoutId = setTimeout(() => controller.abort(), 40000);
+
+      const idToken = await getIdToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      if (idToken) {
+        headers['Authorization'] = `Bearer ${idToken}`;
+      }
 
       const res = await fetch('/api/ai/analyze-reports', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           period: period || undefined,
           regionId: selectedRegion || undefined,

@@ -6,8 +6,8 @@ import {
   fetchRegionsFromFirestore,
   fetchUsersFromFirestore,
   findUserByEmailOrUid,
-  seedFirestoreIfEmpty,
   checkFirestoreConnection,
+  triggerAdminBootstrap,
 } from '../lib/firestoreService.js';
 
 interface AuthContextType {
@@ -19,6 +19,7 @@ interface AuthContextType {
   setActiveRegionFilter: (regionId: string | 'ALL') => void;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  getIdToken: () => Promise<string | null>;
   isLoading: boolean;
   authError: string | null;
   clearAuthError: () => void;
@@ -28,6 +29,7 @@ interface AuthContextType {
   isRegionalCoordinator: boolean;
   reloadRegions: () => Promise<void>;
   firestoreConnected: boolean;
+  initializeMinisterialDatabase: () => Promise<{ success: boolean; message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,35 +44,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [authError, setAuthError] = useState<string | null>(null);
   const [firestoreConnected, setFirestoreConnected] = useState<boolean>(true);
 
-  // Initialize and check connection
+  // Check connectivity on boot (No unauthenticated seeding)
   useEffect(() => {
     let mounted = true;
 
-    async function init() {
+    async function checkHealth() {
       try {
         const isConnected = await checkFirestoreConnection();
         if (mounted) setFirestoreConnected(isConnected);
-
-        // Seed initial collections if empty
-        await seedFirestoreIfEmpty();
-
-        const [initialRegions, initialUsers] = await Promise.all([
-          fetchRegionsFromFirestore(),
-          fetchUsersFromFirestore(),
-        ]);
-
-        if (mounted) {
-          setRegions(initialRegions);
-          setAllUsers(initialUsers);
-        }
       } catch (err) {
-        console.warn('[AuthContext] Erro na inicialização:', err);
-      } finally {
-        if (mounted) setIsLoading(false);
+        if (mounted) setFirestoreConnected(false);
       }
     }
 
-    init();
+    checkHealth();
 
     // Listen to Firebase Auth state
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -80,15 +67,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           setIsLoading(true);
           const email = fbUser.email?.toLowerCase().trim();
+          const idToken = await fbUser.getIdToken();
+
+          // Verify with server endpoint or Firestore
           const ministerialUser = await findUserByEmailOrUid(email, fbUser.uid);
 
           if (!ministerialUser) {
+            // Check if primary admin Arthur logging in for the first time
+            if (email === 'arthursantosprojetos@gmail.com') {
+              const res = await triggerAdminBootstrap(idToken);
+              const reloadedUser = await findUserByEmailOrUid(email, fbUser.uid);
+              if (reloadedUser) {
+                setCurrentUser(reloadedUser);
+                setAuthError(null);
+                const [r, u] = await Promise.all([fetchRegionsFromFirestore(), fetchUsersFromFirestore()]);
+                setRegions(r);
+                setAllUsers(u);
+                setIsLoading(false);
+                return;
+              }
+            }
+
             // Unregistered user attempting access -> block and sign out
             await signOut(auth);
             setCurrentUser(null);
             setAuthError(
-              `O e-mail Google (${fbUser.email}) não está cadastrado na base ministerial dos Semeadores de Fogo. Solicite liberação ao Administrador Global.`
+              `O e-mail Google (${fbUser.email}) não possui autorização ministerial cadastrada. Solicite liberação ao Administrador Global (Arthur).`
             );
+            setIsLoading(false);
             return;
           }
 
@@ -98,12 +104,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setAuthError(
               `O cadastro de ${ministerialUser.name} está com status inativo. Contate a Liderança Global.`
             );
+            setIsLoading(false);
             return;
           }
 
           // Authorized ministerial user
           setCurrentUser(ministerialUser);
           setAuthError(null);
+
+          // Populate authorized metadata
+          const [initialRegions, initialUsers] = await Promise.all([
+            fetchRegionsFromFirestore(),
+            fetchUsersFromFirestore(),
+          ]);
+          setRegions(initialRegions);
+          setAllUsers(initialUsers);
 
           // Constrain regional filter to their assigned regional if coordinator or field leader
           if (ministerialUser.role !== 'admin_global' && ministerialUser.regionId) {
@@ -120,6 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         // Logged out
         setCurrentUser(null);
+        setIsLoading(false);
       }
     });
 
@@ -136,7 +152,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       if (err.code === 'auth/popup-closed-by-user') {
-        // User closed popup deliberately
         setIsLoading(false);
         return;
       }
@@ -159,6 +174,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const getIdToken = async (): Promise<string | null> => {
+    if (!auth.currentUser) return null;
+    try {
+      return await auth.currentUser.getIdToken();
+    } catch {
+      return null;
+    }
+  };
+
+  const initializeMinisterialDatabase = async () => {
+    if (!currentUser || currentUser.role !== 'admin_global') {
+      return { success: false, message: 'Operação exclusiva do Administrador Global.' };
+    }
+    const token = await getIdToken();
+    if (!token) return { success: false, message: 'Token de autenticação indisponível.' };
+    const res = await triggerAdminBootstrap(token);
+    if (res.success) {
+      await reloadRegions();
+    }
+    return res;
   };
 
   const clearAuthError = () => {
@@ -194,7 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const canAccessModule = (moduleKey: string): boolean => {
-    if (!currentUser) return true;
+    if (!currentUser) return false;
     if (currentUser.role === 'admin_global') return true;
 
     switch (moduleKey) {
@@ -209,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       case 'consolidation':
         return currentUser.role === 'equipe_consolidacao' || currentUser.role === 'coordenador_regional';
       default:
-        return true;
+        return false;
     }
   };
 
@@ -224,6 +261,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveRegionFilter,
         loginWithGoogle,
         logout,
+        getIdToken,
         isLoading,
         authError,
         clearAuthError,
@@ -233,6 +271,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isRegionalCoordinator,
         reloadRegions,
         firestoreConnected,
+        initializeMinisterialDatabase,
       }}
     >
       {children}
