@@ -125,29 +125,10 @@ export async function authenticateMinisterialToken(
 
     // 1. Check if Arthur (Primary Global Administrator)
     const isArthurAdmin = emailLower === 'arthursantosprojetos@gmail.com';
-
-    // 2. Query Firestore users by authUid or email
     let ministerialUser: MinisterialUser | null = null;
 
-    const snapUid = await getDocs(query(collection(serverDb, 'users'), where('authUid', '==', verifiedToken.uid)));
-    if (!snapUid.empty) {
-      ministerialUser = snapUid.docs[0].data() as MinisterialUser;
-    } else {
-      const snapAll = await getDocs(collection(serverDb, 'users'));
-      for (const d of snapAll.docs) {
-        const u = d.data() as MinisterialUser;
-        if (u.email && u.email.toLowerCase().trim() === emailLower) {
-          ministerialUser = u;
-          // Associate UID
-          setDoc(doc(serverDb, 'users', d.id), { authUid: verifiedToken.uid }, { merge: true }).catch(() => {});
-          break;
-        }
-      }
-    }
-
-    // If Arthur is logging in for the first time before seeding, bootstrap admin user profile
-    if (!ministerialUser && isArthurAdmin) {
-      const newAdmin: MinisterialUser = {
+    if (isArthurAdmin) {
+      ministerialUser = {
         id: 'user-arthur',
         name: 'Arthur Santos',
         email: emailLower,
@@ -157,8 +138,28 @@ export async function authenticateMinisterialToken(
         status: 'active',
         authUid: verifiedToken.uid,
       };
-      await setDoc(doc(serverDb, 'users', 'user-arthur'), newAdmin);
-      ministerialUser = newAdmin;
+      // Asynchronously ensure record exists in Firestore if writable
+      setDoc(doc(serverDb, 'users', 'user-arthur'), ministerialUser).catch(() => {});
+    } else {
+      // 2. Query Firestore users by authUid or email
+      try {
+        const snapUid = await getDocs(query(collection(serverDb, 'users'), where('authUid', '==', verifiedToken.uid)));
+        if (!snapUid.empty) {
+          ministerialUser = snapUid.docs[0].data() as MinisterialUser;
+        } else {
+          const snapAll = await getDocs(collection(serverDb, 'users'));
+          for (const d of snapAll.docs) {
+            const u = d.data() as MinisterialUser;
+            if (u.email && u.email.toLowerCase().trim() === emailLower) {
+              ministerialUser = u;
+              setDoc(doc(serverDb, 'users', d.id), { authUid: verifiedToken.uid }, { merge: true }).catch(() => {});
+              break;
+            }
+          }
+        }
+      } catch (queryErr) {
+        console.warn('[Auth Middleware] Erro ao consultar usuário ministerial no Firestore:', queryErr);
+      }
     }
 
     if (!ministerialUser) {

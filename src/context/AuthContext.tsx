@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Region } from '../types/index.js';
-import { auth, googleProvider, signInWithPopup, signOut } from '../lib/firebase.js';
+import { auth, db, googleProvider, signInWithPopup, signOut } from '../lib/firebase.js';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
 import {
   fetchRegionsFromFirestore,
   fetchUsersFromFirestore,
@@ -70,24 +71,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const idToken = await fbUser.getIdToken();
 
           // Verify with server endpoint or Firestore
-          const ministerialUser = await findUserByEmailOrUid(email, fbUser.uid);
+          let ministerialUser = await findUserByEmailOrUid(email, fbUser.uid);
 
-          if (!ministerialUser) {
-            // Check if primary admin Arthur logging in for the first time
-            if (email === 'arthursantosprojetos@gmail.com') {
-              const res = await triggerAdminBootstrap(idToken);
-              const reloadedUser = await findUserByEmailOrUid(email, fbUser.uid);
-              if (reloadedUser) {
-                setCurrentUser(reloadedUser);
-                setAuthError(null);
-                const [r, u] = await Promise.all([fetchRegionsFromFirestore(), fetchUsersFromFirestore()]);
-                setRegions(r);
-                setAllUsers(u);
-                setIsLoading(false);
-                return;
-              }
+          // If Arthur (Primary Global Administrator), bootstrap and register admin profile immediately
+          if (!ministerialUser && email === 'arthursantosprojetos@gmail.com') {
+            const adminUser: User = {
+              id: fbUser.uid,
+              name: fbUser.displayName || 'Arthur Santos',
+              email: 'arthursantosprojetos@gmail.com',
+              role: 'admin_global',
+              regionId: null,
+              phone: fbUser.phoneNumber || '(11) 99999-0001',
+              status: 'active',
+              authUid: fbUser.uid,
+            };
+
+            try {
+              await setDoc(doc(db, 'users', fbUser.uid), adminUser);
+            } catch (saveErr) {
+              console.warn('[AuthContext] Aviso ao gravar perfil admin no Firestore:', saveErr);
             }
 
+            ministerialUser = adminUser;
+          }
+
+          if (!ministerialUser) {
             // Unregistered user attempting access -> block and sign out
             await signOut(auth);
             setCurrentUser(null);

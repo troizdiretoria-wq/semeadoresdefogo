@@ -157,7 +157,8 @@ export async function findUserByEmailOrUid(
 
     return null;
   } catch (err) {
-    handleFirestoreError(err, OperationType.GET, 'users');
+    console.warn('[Firestore] Usuário não encontrado ou erro de consulta:', err);
+    return null;
   }
 }
 
